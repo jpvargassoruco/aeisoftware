@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Master PostgreSQL database
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    restart: always
+
+  # Master Odoo Instance
+  odoo:
+    build: .
+    depends_on:
+      - db
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+      # Cloudflare specifics (provided externally)
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
+      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
+      - CF_ZONE_ID=${CF_ZONE_ID:-}
+      - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
+    volumes:
+      # Map the source code into the container
+      - ./micro_saas:/mnt/extra-addons/micro_saas
+      - ./aei_saas_manager:/mnt/extra-addons/aei_saas_manager
+      - ./cloudflare_manager:/opt/aeisoftware/cloudflare_manager
+      # Mount strictly required for Docker-out-of-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Data volumes
+      - odoo-web-data:/var/lib/odoo
+      # Odoo config
+      - ./odoo.conf:/etc/odoo/odoo.conf
+    restart: always
+    # We do NOT expose 8069 locally because Nginx will handle routing
+    # to support longpolling for the Master
+    expose:
+      - "8069"
+      - "8072"
+
+  # Nginx Reverse Proxy for the Master Instance 
+  # This listens on port 80 and routes to Odoo's 8069 (web) and 8072 (websocket)
+  nginx:
+    image: nginx:latest
+    depends_on:
+      - odoo
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+
+volumes:
+  odoo-db-data:
+  odoo-web-data:
