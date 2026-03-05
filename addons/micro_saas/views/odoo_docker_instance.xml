@@ -67,23 +67,23 @@
                         </page>
 
                         <page string="Variables" name="variables">
-                            <field name="variable_ids" context="{'default_instance_id': active_id}">
-                                <tree editable="bottom" create="false" delete="false">
+                            <field name="instance_variable_ids" context="{'default_instance_id': id}">
+                                <list editable="bottom" create="false" delete="false">
                                     <field name="display_name" string="Name"/>
                                     <field name="demo_value" required="1"/>
                                     <field name="field_type"/>
                                     <field name="name" invisible="1" force_save="1"/>
-                                </tree>
+                                </list>
                             </field>
                         </page>
 
                         <page string="Repository" name="repository">
                             <field name="instance_repository_line">
-                                <tree string="Repository and Branch" editable="bottom">
+                                <list string="Repository and Branch" editable="bottom">
                                     <field name="repository_id"/>
                                     <field name="name"/>
                                     <field name="is_clone" readonly="1" widget="boolean_button"/>
-                                </tree>
+                                </list>
                             </field>
                         </page>
 
@@ -151,7 +151,7 @@
                                     processes for all users. Thank you for your support!
                                 </p>
                                 <p>For more information, please contact us at <a
-                                    href="mailto:davidmonterocrespo24@gmail.com">davidmonterocrespo24@gmail.com</a>
+                                    href="mailto:davidmonterocrespo24@gmail.com"></a> : davidmonterocrespo24@gmail.com
                                 </p>
                             </div>
                         </page>
@@ -160,7 +160,6 @@
             </form>
         </field>
     </record>
-
 
     <record model="ir.ui.view" id="view_odoo_docker_instance_kanban">
         <field name="name">odoo.docker.instance.kanban</field>
@@ -222,6 +221,5 @@
             </kanban>
         </field>
     </record>
-
 
 </odoo>
