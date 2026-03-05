@@ -38,4 +38,3 @@ What happens next:
 The Master micro_saas app triggers a docker-compose up on the host socket to launch the new child's Postgres, Odoo 19, and Nginx.
 Upon a successful start, aei_saas_manager intercepts the process, connects to Cloudflare API with the tokens you provided in step 1, creates a CNAME for test19.aeisoftware.com, and routes it directly to the child's Nginx port.
 You can instantly visit test19.aeisoftware.com to access the running child instance!
-
