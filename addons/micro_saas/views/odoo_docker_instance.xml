@@ -78,7 +78,7 @@
                         </page>
 
                         <page string="Repository" name="repository">
-                            <field name="repository_line">
+                            <field name="instance_repository_line">
                                 <tree string="Repository and Branch" editable="bottom">
                                     <field name="repository_id"/>
                                     <field name="name"/>

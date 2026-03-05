@@ -15,4 +15,5 @@ class RepositoryRepoLine(models.Model):
     name = fields.Char(string='Branch Name')
     repository_id = fields.Many2one('repository.repo', string='Repository')
     instance_id = fields.Many2one('odoo.docker.instance', string='Instance')
+    dc_template_id = fields.Many2one('docker.compose.template', string='Template')
     is_clone = fields.Boolean(string='Is Clone')

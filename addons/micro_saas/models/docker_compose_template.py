@@ -33,7 +33,7 @@ class DockerComposeTemplate(models.Model):
     result_dc_body = fields.Text(string="Result Docker Compose", compute='_compute_result_dc_body', store=True)
     tag_ids = fields.Many2many('docker.compose.tag', string="Tags", tracking=True)
     template_dc_body = fields.Text(string="Template Docker Compose")
-    repository_line = fields.One2many('repository.repo.line', 'instance_id', string='Repository and Branch')
+    repository_line = fields.One2many('repository.repo.line', 'dc_template_id', string='Repository and Branch')
     result_odoo_conf = fields.Text(string="Result Odoo Conf", compute='_compute_result_odoo_conf', store=True)
     template_odoo_conf = fields.Text(string="Template Odoo Conf", default=_default_template_odoo_conf)
     template_postgres_conf = fields.Text(string="Template Postgres Conf")

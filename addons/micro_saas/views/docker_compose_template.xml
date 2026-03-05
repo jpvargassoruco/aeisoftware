@@ -44,7 +44,7 @@
                                        invisible="is_result_dc_body == True"
                                        placeholder="Use {{1}}, {{2}} as placeholders for dynamic variable"/>
                             </page>
-                            <page id="result_dc_body" name="Template Odoo Conf">
+                            <page id="template_odoo_conf" name="Template Odoo Conf">
                                 <field name="is_result_odoo_conf" widget="boolean_toggle"/>
                                 <field name="result_odoo_conf"
                                        readonly="1" invisible="is_result_odoo_conf == False"
@@ -66,8 +66,6 @@
                                        widget="ace" options="{'mode': 'xml' ,'theme': 'monokai'}"
                                        placeholder="Use {{1}}, {{2}} as placeholders for dynamic variable"/>
                             </page>
-                        </notebook>
-                        <notebook>
                             <page string="Variables">
                                 <field name="variable_ids">
                                     <tree editable="bottom" create="false" delete="false">
@@ -78,8 +76,6 @@
                                     </tree>
                                 </field>
                             </page>
-                        </notebook>
-                        <notebook>
                             <page string="Repository">
                                 <field name="repository_line">
                                     <tree string="Repository and Branch" editable="bottom">

@@ -21,7 +21,7 @@ class OdooDockerInstance(models.Model):
     http_port = fields.Char(string='HTTP Port')
     longpolling_port = fields.Char(string='Longpolling Port')
     instance_url = fields.Char(string='Instance URL', compute='_compute_instance_url', store=True)
-    repository_line = fields.One2many('repository.repo.line', 'instance_id', string='Repository and Branch')
+    instance_repository_line = fields.One2many('repository.repo.line', 'instance_id', string='Repository and Branch')
     log = fields.Html(string='Log')
     addons_path = fields.Char(string='Addons Path', compute='_compute_addons_path', store=True)
     user_path = fields.Char(string='User Path', compute='_compute_user_path', store=True)
@@ -36,7 +36,7 @@ class OdooDockerInstance(models.Model):
         if self.template_id:
             self.template_dc_body = self.template_id.template_dc_body
             self.tag_ids = self.template_id.tag_ids
-            self.repository_line = self.template_id.repository_line
+            self.instance_repository_line = self.template_id.repository_line
             self.result_dc_body = self._get_formatted_body(template_body=self.template_dc_body, demo_fallback=True)
             self.instance_variable_ids = self.template_id.variable_ids
             self.instance_variable_ids.filtered(lambda r: r.name == '{{HTTP-PORT}}').demo_value = self.http_port
@@ -63,13 +63,13 @@ class OdooDockerInstance(models.Model):
             instance.result_dc_body = instance._get_formatted_body(template_body=instance.template_dc_body,
                                                                 demo_fallback=True)
 
-    @api.depends('repository_line')
+    @api.depends('instance_repository_line')
     def _compute_addons_path(self):
         for instance in self:
-            if not instance.repository_line:
+            if not instance.instance_repository_line:
                 continue
             addons_path = []
-            for line in instance.repository_line:
+            for line in instance.instance_repository_line:
                 addons_path.append("/mnt/extra-addons/" + self._get_repo_name(line))
             instance.addons_path = ','.join(addons_path)
 
@@ -147,7 +147,7 @@ class OdooDockerInstance(models.Model):
 
     def _clone_repositories(self):
         for instance in self:
-            for line in instance.repository_line:
+            for line in instance.instance_repository_line:
                 repo_name = self._get_repo_name(line)
                 repo_path = os.path.join(instance.instance_data_path, "addons", repo_name)
                 self._makedirs(repo_path)
