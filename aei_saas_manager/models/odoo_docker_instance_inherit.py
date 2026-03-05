@@ -1,0 +1,73 @@
+import logging
+import os
+from odoo import models, fields, api
+from odoo.exceptions import UserError
+try:
+    # Requires the cloudflare_manager package to be in the PYTHONPATH or installed
+    from cloudflare_manager.client import CloudflareTunnelManager
+except ImportError:
+    CloudflareTunnelManager = None
+
+_logger = logging.getLogger(__name__)
+
+class OdooDockerInstanceCF(models.Model):
+    _inherit = 'odoo.docker.instance'
+
+    domain_name = fields.Char(string='Public Domain Name', help="e.g. test.yourdomain.com", required=True)
+    cloudflare_status = fields.Selection([
+        ('pending', 'Pending'),
+        ('published', 'Published'),
+        ('failed', 'Failed')
+    ], string='Cloudflare Status', default='pending', readonly=True)
+
+    def _get_cf_manager(self):
+        # We fetch the params from the system environment or odoo config
+        # For this PoC, we expect them to be in the environment where Odoo is running
+        api_token = os.environ.get('CF_API_TOKEN')
+        account_id = os.environ.get('CF_ACCOUNT_ID')
+        zone_id = os.environ.get('CF_ZONE_ID')
+
+        if not api_token or not account_id or not zone_id:
+            raise UserError("Cloudflare configuration is missing in environment variables (CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID).")
+
+        if not CloudflareTunnelManager:
+            raise UserError("CloudflareTunnelManager python module failed to import.")
+            
+        return CloudflareTunnelManager(api_token, account_id, zone_id)
+
+    def start_instance(self):
+        # First, call the original method to start the container
+        super(OdooDockerInstanceCF, self).start_instance()
+        
+        # If it started successfully, we publish it to Cloudflare
+        for instance in self:
+            if instance.state == 'running':
+                instance.add_to_log("[INFO] Publishing to Cloudflare Tunnel...")
+                try:
+                    cf_manager = self._get_cf_manager()
+                    tunnel_id = os.environ.get('CF_TUNNEL_ID')
+                    if not tunnel_id:
+                        raise UserError("CF_TUNNEL_ID is not set in environment.")
+                    
+                    # 1. Add route to the tunnel
+                    # Cloudflared container must be able to resolve 'localhost:port' or standard IP
+                    # Assuming localhost works for the host network or we pass the host IP
+                    # For a basic setup, relying on the HTTP port mapped to the host
+                    service_url = f"http://localhost:{instance.http_port}"
+                    route_added = cf_manager.add_route_to_tunnel(tunnel_id, instance.domain_name, service_url)
+                    
+                    # 2. Add DNS CNAME record
+                    # We extract the first part of the domain, e.g. "test" from "test.yourdomain.com"
+                    subdomain = instance.domain_name.split('.')[0]
+                    dns_added = cf_manager.create_dns_cname(subdomain, tunnel_id)
+
+                    if route_added and dns_added:
+                        instance.write({'cloudflare_status': 'published'})
+                        instance.add_to_log(f"[INFO] Successfully published at https://{instance.domain_name}")
+                    else:
+                        instance.write({'cloudflare_status': 'failed'})
+                        instance.add_to_log("[ERROR] Cloudflare publishing failed. Check logs.")
+
+                except Exception as e:
+                    instance.write({'cloudflare_status': 'failed'})
+                    instance.add_to_log(f"[ERROR] Cloudflare integration error: {str(e)}")
