@@ -1,0 +1,3 @@
+[submodule "odoo_micro_saas"]
+	path = odoo_micro_saas
+	url = https://github.com/davidmonterocrespo24/odoo_micro_saas.git
