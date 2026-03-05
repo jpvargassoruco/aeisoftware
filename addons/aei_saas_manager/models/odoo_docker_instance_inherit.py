@@ -20,6 +20,19 @@ class OdooDockerInstanceCF(models.Model):
         ('failed', 'Failed')
     ], string='Cloudflare Status', default='pending', readonly=True)
 
+    @api.depends('name')
+    def _compute_user_path(self):
+        for instance in self:
+            if not instance.name:
+                continue
+            # Force /home/ubuntu to ensure paths are consistent between container and host
+            instance.user_path = '/home/ubuntu'
+            instance.instance_data_path = os.path.join(instance.user_path, 'odoo_docker', 'data',
+                                                       instance.name.replace('.', '_').replace(' ', '_').lower())
+            # Regenerate result_dc_body to ensure any path-dependent variables are updated
+            instance.result_dc_body = self._get_formatted_body(template_body=instance.template_dc_body,
+                                                               demo_fallback=True)
+
     def _get_cf_manager(self):
         # We fetch the params from the system environment or odoo config
         # For this PoC, we expect them to be in the environment where Odoo is running

@@ -37,6 +37,8 @@ services:
       - odoo-web-data:/var/lib/odoo
       # Odoo config
       - ./odoo.conf:/etc/odoo/odoo.conf
+      # Shared path for child instances
+      - /home/ubuntu/odoo_docker:/home/ubuntu/odoo_docker
     restart: always
     # We do NOT expose 8069 locally because Nginx will handle routing
     # to support longpolling for the Master
