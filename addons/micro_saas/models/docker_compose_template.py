@@ -29,8 +29,7 @@ class DockerComposeTemplate(models.Model):
     sequence = fields.Integer(required=True, default=0)
     active = fields.Boolean(default=True)
     variable_ids = fields.One2many('docker.compose.template.variable', 'dc_template_id',
-                                   string="Template Variables", store=True, compute='_compute_variable_ids',
-                                   precompute=True, readonly=False)
+                                   string="Template Variables", compute='_compute_variable_ids')
     result_dc_body = fields.Text(string="Result Docker Compose", compute='_compute_result_dc_body', store=True)
     tag_ids = fields.Many2many('docker.compose.tag', string="Tags", tracking=True)
     template_dc_body = fields.Text(string="Template Docker Compose")
