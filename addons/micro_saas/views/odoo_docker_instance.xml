@@ -43,7 +43,7 @@
                                    invisible="is_result_dc_body == True"
                                    placeholder="Use {{1}}, {{2}} as placeholders for dynamic variable"/>
                         </page>
-                        <page id="result_dc_body" name="Template Odoo Conf">
+                        <page id="template_odoo_conf" name="Template Odoo Conf">
                             <field name="is_result_odoo_conf" widget="boolean_toggle"/>
                             <field name="result_odoo_conf"
                                    readonly="1" invisible="is_result_odoo_conf == False"
@@ -66,7 +66,34 @@
                                    placeholder="Use {{1}}, {{2}} as placeholders for dynamic variable"/>
                         </page>
 
-                        <page string="Help">
+                        <page string="Variables" name="variables">
+                            <field name="instance_variable_ids">
+                                <tree editable="bottom" create="false" delete="false">
+                                    <field name="display_name" string="Name"/>
+                                    <field name="demo_value" required="1"/>
+                                    <field name="field_type"/>
+                                    <field name="name" invisible="1" force_save="1"/>
+                                </tree>
+                            </field>
+                        </page>
+
+                        <page string="Repository" name="repository">
+                            <field name="repository_line">
+                                <tree string="Repository and Branch" editable="bottom">
+                                    <field name="repository_id"/>
+                                    <field name="name"/>
+                                    <field name="is_clone" readonly="1" widget="boolean_button"/>
+                                </tree>
+                            </field>
+                        </page>
+
+                        <page string="Logs" name="logs">
+                            <field name="log" colspan="4" nolabel="1"
+                                   style=" width: 100%; height: 600px;  overflow-y: auto;color:rgb(255,255,255);  background: black;"
+                                   widget="html" readonly="1"/>
+                        </page>
+
+                        <page string="Help" name="help">
                             <div class="oe_row oe_spaced">
                                 <h1>Installation Guide: Docker, Docker Compose, and Git</h1>
                                 <h2>Docker:</h2>
@@ -124,39 +151,9 @@
                                     processes for all users. Thank you for your support!
                                 </p>
                                 <p>For more information, please contact us at <a
-                                    href="mailto:davidmonterocrespo24@gmail.com"></a> : davidmonterocrespo24@gmail.com
+                                    href="mailto:davidmonterocrespo24@gmail.com">davidmonterocrespo24@gmail.com</a>
                                 </p>
                             </div>
-                        </page>
-                    </notebook>
-                    <notebook>
-                        <page string="Variables">
-                            <field name="variable_ids">
-                                <tree editable="bottom" create="false" delete="false">
-                                    <field name="display_name" string="Name"/>
-                                    <field name="demo_value" required="1"/>
-                                    <field name="field_type"/>
-                                    <field name="name" invisible="1" force_save="1"/>
-                                </tree>
-                            </field>
-                        </page>
-                    </notebook>
-                    <notebook>
-                        <page string="Repository">
-                            <field name="repository_line">
-                                <tree string="Repository and Branch" editable="bottom">
-                                    <field name="repository_id"/>
-                                    <field name="name"/>
-                                    <field name="is_clone" readonly="1" widget="boolean_button"/>
-                                </tree>
-                            </field>
-                        </page>
-                    </notebook>
-                    <notebook>
-                        <page string="Logs">
-                            <field name="log" colspan="4" nolabel="1"
-                                   style=" width: 100%; height: 600px;  overflow-y: auto;color:rgb(255,255,255);  background: black;"
-                                   widget="html" readonly="1"/>
                         </page>
                     </notebook>
                 </sheet>

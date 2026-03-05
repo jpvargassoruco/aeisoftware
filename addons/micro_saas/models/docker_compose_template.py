@@ -163,16 +163,11 @@ class DockerComposeTemplateVariable(models.Model):
 
     @api.constrains('field_name')
     def _check_field_name(self):
+        # Simply check if field_name is set for 'field' type
+        # Full validation would require knowing the target model (e.g. odoo.docker.instance)
         for variable in self:
-            if not variable.field_name or self.user_has_groups('base.group_system'):
-                continue
-
-            model = self.env[variable.model]
-            if not model.check_access_rights('read', raise_exception=False):
-                raise ValidationError(_("You can not select field of %r.", variable.model))
-
-            if variable.field_name not in model:
-                raise ValidationError(_("Invalid field name: %r", variable.field_name))
+            if variable.field_type == 'field' and not variable.field_name:
+                raise ValidationError(_("Field template variables must be associated with a field."))
 
 
 def _get_variables_value(self, record):

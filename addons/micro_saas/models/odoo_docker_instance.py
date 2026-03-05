@@ -4,7 +4,8 @@ import socket
 import subprocess
 from datetime import datetime
 
-from odoo import models, fields, api
+import re
+from odoo import models, fields, api, Command
 
 _logger = logging.getLogger(__name__)
 
@@ -26,8 +27,8 @@ class OdooDockerInstance(models.Model):
     user_path = fields.Char(string='User Path', compute='_compute_user_path', store=True)
     instance_data_path = fields.Char(string='Instance Data Path', compute='_compute_user_path', store=True)
     template_id = fields.Many2one('docker.compose.template', string='Template')
-    variable_ids = fields.One2many('docker.compose.template.variable', 'instance_id',
-                                   string="Template Variables", store=True, compute='_compute_variable_ids',
+    instance_variable_ids = fields.One2many('docker.compose.template.variable', 'instance_id',
+                                   string="Instance Variables", store=True, compute='_compute_instance_variable_ids',
                                    precompute=True, readonly=False)
 
     @api.onchange('template_id')
@@ -37,14 +38,14 @@ class OdooDockerInstance(models.Model):
             self.tag_ids = self.template_id.tag_ids
             self.repository_line = self.template_id.repository_line
             self.result_dc_body = self._get_formatted_body(template_body=self.template_dc_body, demo_fallback=True)
-            self.variable_ids = self.template_id.variable_ids
-            self.variable_ids.filtered(lambda r: r.name == '{{HTTP-PORT}}').demo_value = self.http_port
-            self.variable_ids.filtered(lambda r: r.name == '{{LONGPOLLING-PORT}}').demo_value = self.longpolling_port
+            self.instance_variable_ids = self.template_id.variable_ids
+            self.instance_variable_ids.filtered(lambda r: r.name == '{{HTTP-PORT}}').demo_value = self.http_port
+            self.instance_variable_ids.filtered(lambda r: r.name == '{{LONGPOLLING-PORT}}').demo_value = self.longpolling_port
 
     @api.onchange('http_port', 'longpolling_port')
     def onchange_http_port(self):
-        self.variable_ids.filtered(lambda r: r.name == '{{HTTP-PORT}}').demo_value = self.http_port
-        self.variable_ids.filtered(lambda r: r.name == '{{LONGPOLLING-PORT}}').demo_value = self.longpolling_port
+        self.instance_variable_ids.filtered(lambda r: r.name == '{{HTTP-PORT}}').demo_value = self.http_port
+        self.instance_variable_ids.filtered(lambda r: r.name == '{{LONGPOLLING-PORT}}').demo_value = self.longpolling_port
 
     @api.onchange('name')
     def onchange_name(self):
@@ -59,8 +60,8 @@ class OdooDockerInstance(models.Model):
             instance.user_path = os.path.expanduser('~')
             instance.instance_data_path = os.path.join(instance.user_path, 'odoo_docker', 'data',
                                                        instance.name.replace('.', '_').replace(' ', '_').lower())
-            instance.result_dc_body = self._get_formatted_body(template_body=instance.template_dc_body,
-                                                               demo_fallback=True)
+            instance.result_dc_body = instance._get_formatted_body(template_body=instance.template_dc_body,
+                                                                demo_fallback=True)
 
     @api.depends('repository_line')
     def _compute_addons_path(self):
@@ -261,6 +262,39 @@ class OdooDockerInstance(models.Model):
                     pass
 
         return super(OdooDockerInstance, self).unlink()
+
+    @api.depends('template_dc_body', 'template_odoo_conf', 'template_postgres_conf')
+    def _compute_instance_variable_ids(self):
+        """compute instance variable according to header text, body and buttons"""
+        for instance in self:
+            to_delete = []
+            to_create = []
+            body_variables = set(re.findall(r'{{[^{}]+}}', instance.template_dc_body or ''))
+            body_variables = body_variables.union(set(re.findall(r'{{[^{}]+}}', instance.template_odoo_conf or '')))
+            body_variables = body_variables.union(set(re.findall(r'{{[^{}]+}}', instance.template_postgres_conf or '')))
+            existing_body_variables = instance.instance_variable_ids
+            existing_body_variables = {var.name: var for var in existing_body_variables}
+            new_body_variable_names = [var_name for var_name in body_variables if
+                                       var_name not in existing_body_variables]
+            deleted_body_variables = [var.id for name, var in existing_body_variables.items() if
+                                      name not in body_variables]
+
+            to_create += [{'name': var_name} for var_name in set(new_body_variable_names)]
+            to_delete += deleted_body_variables
+
+            update_commands = [Command.delete(to_delete_id) for to_delete_id in to_delete] + [Command.create(vals) for
+                                                                                              vals in to_create]
+            if update_commands:
+                instance.instance_variable_ids = update_commands
+
+    def _get_formatted_body(self, template_body='', demo_fallback=False, variable_values=None):
+        self.ensure_one()
+        result_body = template_body or ''
+        for var in self.instance_variable_ids:
+            fallback_value = var.demo_value if demo_fallback else ' '
+            _logger.info(f"++++ var.name: ***{var.name}****")
+            result_body = result_body.replace(var.name, fallback_value)
+        return result_body
 
     def excute_command(self, cmd, shell=True, check=True):
         try:
