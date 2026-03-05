@@ -28,8 +28,8 @@ services:
       - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
     volumes:
       # Map the source code into the container
-      - ./micro_saas:/mnt/extra-addons/micro_saas
-      - ./aei_saas_manager:/mnt/extra-addons/aei_saas_manager
+      - ./addons:/mnt/extra-addons
+#      - ./aei_saas_manager:/mnt/extra-addons/aei_saas_manager
       - ./cloudflare_manager:/opt/aeisoftware/cloudflare_manager
       # Mount strictly required for Docker-out-of-Docker
       - /var/run/docker.sock:/var/run/docker.sock
