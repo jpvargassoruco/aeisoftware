@@ -1,4 +1,4 @@
-FROM odoo:19.0
+FROM odoo:17.0
 
 USER root
 
@@ -22,7 +22,7 @@ RUN apt-get update && \
 
 # Install Python requirements for cloudflare_manager
 # Using requests (cloudflare_manager/client.py relies on it)
-RUN pip3 install --no-cache-dir requests --break-system-packages
+RUN pip3 install --no-cache-dir requests
 
 # Odoo configuration
 # Add PYTHONPATH to include cloudflare_manager when Odoo runs

@@ -3,7 +3,7 @@
     "name": "AEI SaaS Manager",
     "summary": "Automates Cloudflare Tunnel routing for Odoo Micro SaaS instances",
     "description": """
-        Extends the odoo_micro_saas module to automatically publish the newly
+        Extends the micro_saas module to automatically publish the newly
         created Odoo containers to a Cloudflare tunnel using the Cloudflare API.
     """,
     "author": "AEI Software",

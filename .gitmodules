@@ -1,3 +1,4 @@
-[submodule "odoo_micro_saas"]
-	path = odoo_micro_saas
+[submodule "addons/micro_saas"]
+	path = addons/micro_saas
 	url = https://github.com/davidmonterocrespo24/odoo_micro_saas.git
+	branch = 17.0

@@ -1,40 +1,37 @@
-Deployment Walkthrough: Aeisoftware SaaS Manager
-The Docker architecture for the Master instance and the GitOps pipeline are now fully implemented. Here are the steps to deploy the application on your VM (or locally).
+# Aeisoftware SaaS Manager - Odoo 17.0
 
-Prerequisites
-Ubuntu server with Docker and Docker Compose installed.
-The Cloudflare Tunnel details ready.
-1. Clone & Start the Master Instance
-SSH into your VM and run the following commands:
+I have successfully migrated the `aeisoftware` project from Odoo 19 to Odoo 17.0. This involved restructuring the submodules, updating the Docker environment, and ensuring all configurations were compatible with the new version.
 
-bash
-# Clone the repository
-git clone https://github.com/jpvargassoruco/aeisoftware.git
-cd aeisoftware
-# Export your Cloudflare configuration
-export CF_API_TOKEN="feVXj6XvlWKfhJNNiAFJmaA-MD_4G_iYaXEfY0K_" # Your actual token
-export CF_ACCOUNT_ID="2755b41b811dc9afc7396ed5d1e27644"
-export CF_ZONE_ID="8a6fcaacd01aa1d8e544c85df5a88c8c"
-export CF_TUNNEL_ID="b779b85b-eae4-4939-b96d-daecb164c026"
-# Launch the Master Instance
-sudo docker-compose up -d --build
-What this does:
+## Changes Made
 
-Spins up a Postgres 15 database (db).
-Builds and spins up the Master odoo container (v19.0), installing the required cloudflare_manager Python dependency and mounting the docker.sock to enable Docker-outside-Docker deployments.
-Spins up an nginx reverse proxy listening on port 80. Nginx handles standard traffic to Odoo and explicitly pipes /websocket traffic to Odoo's longpolling port (8072).
-2. Odoo Setup
-Access the Master Manager: Open a browser and navigate to http://<your-server-ip>.
-Database Creation: Complete the Odoo initial setup. Ensure that "Demo Data" is checked because micro_saas uses XML data to load templates.
-Install Apps: Go to "Apps", update the App List, and install AEI SaaS Manager. (Note: The modules are located in the /addons folder).
-3. Provisioning a Child Instance
-Navigate to the Odoo Docker Instance module.
-Create a new Instance.
-Template: Select Odoo 19 (With Proxy). This is the new template I added that configures an Nginx sidecar for the child instance to support its own WebSockets through Cloudflare!
-Domain Name: Provide the complete Cloudflare domain you want this assigned to (e.g., test19.aeisoftware.com).
-Click Start Instance.
-What happens next:
+### Submodule Restructuring
+- Removed the root-level submodule `odoo_micro_saas`.
+- Deleted the version 19 folder `addons/micro_saas`.
+- Added the `micro_saas` repository as a submodule at `addons/micro_saas` tracking branch `17.0`.
 
-The Master micro_saas app triggers a docker-compose up on the host socket to launch the new child's Postgres, Odoo 19, and Nginx.
-Upon a successful start, aei_saas_manager intercepts the process, connects to Cloudflare API with the tokens you provided in step 1, creates a CNAME for test19.aeisoftware.com, and routes it directly to the child's Nginx port.
-You can instantly visit test19.aeisoftware.com to access the running child instance!
+### Docker Configuration
+- Updated `Dockerfile` to use `odoo:17.0`.
+- Fixed a build error by removing the `--break-system-packages` flag from `pip3 install`, which is not supported in the Odoo 17.0 base image.
+- Rebuilt containers using `docker compose up --build -d`.
+
+### Odoo Configuration
+- Updated `odoo.conf` to include `/mnt/extra-addons/micro_saas` in the `addons_path` to account for the nested directory structure of the branch.
+- Verified that `aei_saas_manager` correctly depends on and inherits from `micro_saas`.
+
+### Manager Modules
+- Updated `aei_saas_manager` manifest to correctly describe its dependency on the `micro_saas` module.
+
+## Verification Results
+
+### Docker Build and Runtime
+- Successfully built the `aeisoftware-odoo` image.
+- Containers `aeisoftware-db-1`, `aeisoftware-odoo-1`, and `aeisoftware-nginx-1` are all running correctly.
+
+### Odoo Logs
+- Verified Odoo logs show the correct version (17.0) and addons paths:
+```
+odoo-1  | 2026-03-05 19:40:38,264 1 INFO ? odoo: Odoo version 17.0-20260305 
+odoo-1  | 2026-03-05 19:40:38,265 1 INFO ? odoo: addons paths: ['/usr/lib/python3/dist-packages/odoo/addons', '/var/lib/odoo/addons/17.0', '/mnt/extra-addons', '/mnt/extra-addons/micro_saas'] 
+```
+
+The system is now ready for use on version 17.0.
