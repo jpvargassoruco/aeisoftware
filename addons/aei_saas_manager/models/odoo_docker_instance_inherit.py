@@ -35,7 +35,53 @@ class OdooDockerInstanceCF(models.Model):
             
         return CloudflareTunnelManager(api_token, account_id, zone_id)
 
+    def _create_nginx_conf(self):
+        for instance in self:
+            nginx_conf_path = os.path.join(instance.instance_data_path, 'nginx.conf')
+            # Determine the Odoo service name from the template if possible, 
+            # but for our templates we will use 'odoo'
+            nginx_conf_content = """events {
+    worker_connections 1024;
+}
+http {
+    upstream odoo_backend {
+        server odoo:8069;
+    }
+    upstream odoo_livechat {
+        server odoo:8072;
+    }
+    server {
+        listen 80;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffers 16 64k;
+        proxy_buffer_size 128k;
+
+        location /websocket {
+            proxy_pass http://odoo_livechat;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+        location / {
+            proxy_pass http://odoo_backend;
+        }
+    }
+}
+"""
+            try:
+                instance._makedirs(os.path.dirname(nginx_conf_path))
+                with open(nginx_conf_path, "w") as f:
+                    f.write(nginx_conf_content)
+                instance.add_to_log(f"[INFO] Nginx configuration created at {nginx_conf_path}")
+            except Exception as e:
+                instance.add_to_log(f"[ERROR] Failed to create Nginx config: {str(e)}")
+
     def start_instance(self):
+        # Create Nginx config before starting
+        self._create_nginx_conf()
+        
         # First, call the original method to start the container
         super(OdooDockerInstanceCF, self).start_instance()
         

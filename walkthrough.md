@@ -1,4 +1,4 @@
-# Aeisoftware SaaS Manager - Odoo 17.0
+# Migration to Odoo 17.0 Walkthrough
 
 I have successfully migrated the `aeisoftware` project from Odoo 19 to Odoo 17.0. This involved restructuring the submodules, updating the Docker environment, and ensuring all configurations were compatible with the new version.
 

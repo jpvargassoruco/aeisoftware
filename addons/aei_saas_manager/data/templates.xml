@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Odoo 17 Template -->
+        <record id="template_odoo_17_nginx" model="docker.compose.template">
+            <field name="name">Odoo 17 (Nginx Sidecar)</field>
+            <field name="template_dc_body"><![CDATA[
+version: '3'
+services:
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - POSTGRES_DB=postgres
+    restart: always
+    volumes:
+      - ./postgresql:/var/lib/postgresql/data
+
+  odoo:
+    image: odoo:17.0
+    depends_on:
+      - db
+    tty: true
+    command: --
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    volumes:
+      - ./addons:/mnt/extra-addons
+      - ./etc:/etc/odoo
+      - ./data:/var/lib/odoo
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - odoo
+    ports:
+      - "{{HTTP-PORT}}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+]]></field>
+            <field name="variable_ids" eval="[
+                (5, 0, 0),
+                (0, 0, {'name': '{{HTTP-PORT}}', 'demo_value': '8069'}),
+                (0, 0, {'name': '{{LONGPOLLING-PORT}}', 'demo_value': '8072'}),
+            ]"/>
+        </record>
+
+        <!-- Odoo 18 Template -->
+        <record id="template_odoo_18_nginx" model="docker.compose.template">
+            <field name="name">Odoo 18 (Nginx Sidecar)</field>
+            <field name="template_dc_body"><![CDATA[
+version: '3'
+services:
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - POSTGRES_DB=postgres
+    restart: always
+    volumes:
+      - ./postgresql:/var/lib/postgresql/data
+
+  odoo:
+    image: odoo:18.0
+    depends_on:
+      - db
+    tty: true
+    command: --
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    volumes:
+      - ./addons:/mnt/extra-addons
+      - ./etc:/etc/odoo
+      - ./data:/var/lib/odoo
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - odoo
+    ports:
+      - "{{HTTP-PORT}}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+]]></field>
+            <field name="variable_ids" eval="[
+                (5, 0, 0),
+                (0, 0, {'name': '{{HTTP-PORT}}', 'demo_value': '8069'}),
+                (0, 0, {'name': '{{LONGPOLLING-PORT}}', 'demo_value': '8072'}),
+            ]"/>
+        </record>
+
+        <!-- Odoo 19 Template -->
+        <record id="template_odoo_19_nginx" model="docker.compose.template">
+            <field name="name">Odoo 19 (Nginx Sidecar)</field>
+            <field name="template_dc_body"><![CDATA[
+version: '3'
+services:
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - POSTGRES_DB=postgres
+    restart: always
+    volumes:
+      - ./postgresql:/var/lib/postgresql/data
+
+  odoo:
+    image: odoo:19.0
+    depends_on:
+      - db
+    tty: true
+    command: --
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    volumes:
+      - ./addons:/mnt/extra-addons
+      - ./etc:/etc/odoo
+      - ./data:/var/lib/odoo
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - odoo
+    ports:
+      - "{{HTTP-PORT}}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+]]></field>
+            <field name="variable_ids" eval="[
+                (5, 0, 0),
+                (0, 0, {'name': '{{HTTP-PORT}}', 'demo_value': '8069'}),
+                (0, 0, {'name': '{{LONGPOLLING-PORT}}', 'demo_value': '8072'}),
+            ]"/>
+        </record>
+    </data>
+</odoo>

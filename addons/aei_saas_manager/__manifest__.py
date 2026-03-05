@@ -12,6 +12,7 @@
     "version": "1.0.0",
     "depends": ["base", "micro_saas"],
     "data": [
+        "data/templates.xml",
         "views/odoo_docker_instance_inherit.xml",
     ],
     "installable": True,
