@@ -1,46 +1,55 @@
 # Aeisoftware SaaS Manager - Odoo 17.0
 
-I have successfully migrated the `aeisoftware` project from Odoo 19 to Odoo 17.0. This involved restructuring the submodules, updating the Docker environment, and ensuring all configurations were compatible with the new version.
+The Docker architecture for the Master instance and the GitOps pipeline are now fully implemented on Odoo 17.0.
 
-## Changes Made
+## 1. Quick Start / Deployment
+
+SSH into your VM and run the following commands to start the Master Instance:
+
+```bash
+# Clone the repository (if not already present)
+# git clone https://github.com/jpvargassoruco/aeisoftware.git
+# cd aeisoftware
+
+# Export your Cloudflare configuration
+export CF_API_TOKEN="your_cloudflare_token"
+export CF_ACCOUNT_ID="your_account_id"
+export CF_ZONE_ID="your_zone_id"
+export CF_TUNNEL_ID="your_tunnel_id"
+
+# Launch the Master Instance
+sudo docker compose up -d --build
+```
+
+### What this does:
+- Spins up a **Postgres 15** database.
+- Builds the **Master Odoo 17.0** container with required dependencies (`requests`, `docker-cli`).
+- Sets up an **Nginx reverse proxy** to handle standard traffic and WebSockets for the Master.
+
+## 2. Odoo Setup
+1. **Access the Master**: Open `http://<your-server-ip>`.
+2. **Database Creation**: Create a database. **Important**: Check "Demo Data" to load default templates.
+3. **Install Manager**: Go to Apps and install **AEI SaaS Manager**.
+
+## 3. Provisioning Child Instances
+1. Navigate to **Instance Management** -> **Odoo Instances**.
+2. Create a new instance and select a template:
+   - **Odoo 17/18/19 (Nginx Sidecar)**: Recommended for full WebSocket support.
+3. Enter the **Domain Name** (e.g., `client1.aeisoftware.com`).
+4. Click **Start Instance**.
+   - This launches child containers and automatically configures Cloudflare.
+
+---
+
+## Migration Walkthrough (Odoo 19 -> 17.0)
+
+Summary of changes made during the migration:
 
 ### Submodule Restructuring
-- Removed the root-level submodule `odoo_micro_saas`.
-- Deleted the version 19 folder `addons/micro_saas`.
-- Added the `micro_saas` repository as a submodule at `addons/micro_saas` tracking branch `17.0`.
+- Relocated `micro_saas` to `addons/micro_saas` (branch 17.0).
+- Removed legacy root-level submodule.
 
-### Docker Configuration
-- Updated `Dockerfile` to use `odoo:17.0`.
-- Fixed a build error by removing the `--break-system-packages` flag from `pip3 install`, which is not supported in the Odoo 17.0 base image.
-- Rebuilt containers using `docker compose up --build -d`.
-
-### Odoo Configuration
-- Updated `odoo.conf` to include `/mnt/extra-addons/micro_saas` in the `addons_path` to account for the nested directory structure of the branch.
-- Verified that `aei_saas_manager` correctly depends on and inherits from `micro_saas`.
-
-### Manager Modules
-- Updated `aei_saas_manager` manifest to correctly describe its dependency on the `micro_saas` module.
-- **NEW**: Added Odoo 17, 18, and 19 templates with an embedded Nginx sidecar.
-- **NEW**: Implemented automatic `nginx.conf` generation for child instances in `aei_saas_manager`.
-
-### System Compatibility
-- **PATCH**: Updated `micro_saas` to use the modern `docker compose` command for managing child instances.
-
-## Verification Results
-
-### Docker Build and Runtime
-- Successfully built the `aeisoftware-odoo` image.
-- Containers `aeisoftware-db-1`, `aeisoftware-odoo-1`, and `aeisoftware-nginx-1` are all running correctly.
-
-### Child Instance Templates
-- Verified the Odoo 17, 18, and 19 (Nginx Sidecar) templates are loaded in the Odoo Master UI.
-- The `aei_saas_manager` is configured to create the necessary `nginx.conf` for these sidecars upon instance start.
-
-### Odoo Logs
-- Verified Odoo logs show the correct version (17.0) and addons paths:
-```
-odoo-1  | 2026-03-05 19:40:38,264 1 INFO ? odoo: Odoo version 17.0-20260305 
-odoo-1  | 2026-03-05 19:40:38,265 1 INFO ? odoo: addons paths: ['/usr/lib/python3/dist-packages/odoo/addons', '/var/lib/odoo/addons/17.0', '/mnt/extra-addons', '/mnt/extra-addons/micro_saas'] 
-```
-
-The system is now ready for use on version 17.0.
+### Key Improvements
+- **Nginx Sidecars**: Integrated Nginx into child instance templates for optimized routing.
+- **Docker Compose V2**: Updated all scripts to use `docker compose`.
+- **17.0 Compatibility**: Full update of `aei_saas_manager` and `cloudflare_manager`.

@@ -1,46 +1,34 @@
-# Migration to Odoo 17.0 Walkthrough
+# Deployment & Migration Walkthrough
 
-I have successfully migrated the `aeisoftware` project from Odoo 19 to Odoo 17.0. This involved restructuring the submodules, updating the Docker environment, and ensuring all configurations were compatible with the new version.
+This document covers both the deployment of the Master Instance and the technical details of the Odoo 17.0 migration.
 
-## Changes Made
+## 1. Master Instance Deployment
 
-### Submodule Restructuring
-- Removed the root-level submodule `odoo_micro_saas`.
-- Deleted the version 19 folder `addons/micro_saas`.
-- Added the `micro_saas` repository as a submodule at `addons/micro_saas` tracking branch `17.0`.
+SSH into your VM and run the following:
 
-### Docker Configuration
-- Updated `Dockerfile` to use `odoo:17.0`.
-- Fixed a build error by removing the `--break-system-packages` flag from `pip3 install`, which is not supported in the Odoo 17.0 base image.
-- Rebuilt containers using `docker compose up --build -d`.
+```bash
+# Export Cloudflare configuration
+export CF_API_TOKEN="your_token"
+export CF_ACCOUNT_ID="your_id"
+export CF_ZONE_ID="your_zone"
+export CF_TUNNEL_ID="your_tunnel"
 
-### Odoo Configuration
-- Updated `odoo.conf` to include `/mnt/extra-addons/micro_saas` in the `addons_path` to account for the nested directory structure of the branch.
-- Verified that `aei_saas_manager` correctly depends on and inherits from `micro_saas`.
-
-### Manager Modules
-- Updated `aei_saas_manager` manifest to correctly describe its dependency on the `micro_saas` module.
-- **NEW**: Added Odoo 17, 18, and 19 templates with an embedded Nginx sidecar.
-- **NEW**: Implemented automatic `nginx.conf` generation for child instances in `aei_saas_manager`.
-
-### System Compatibility
-- **PATCH**: Updated `micro_saas` to use the modern `docker compose` command for managing child instances.
-
-## Verification Results
-
-### Docker Build and Runtime
-- Successfully built the `aeisoftware-odoo` image.
-- Containers `aeisoftware-db-1`, `aeisoftware-odoo-1`, and `aeisoftware-nginx-1` are all running correctly.
-
-### Child Instance Templates
-- Verified the Odoo 17, 18, and 19 (Nginx Sidecar) templates are loaded in the Odoo Master UI.
-- The `aei_saas_manager` is configured to create the necessary `nginx.conf` for these sidecars upon instance start.
-
-### Odoo Logs
-- Verified Odoo logs show the correct version (17.0) and addons paths:
-```
-odoo-1  | 2026-03-05 19:40:38,264 1 INFO ? odoo: Odoo version 17.0-20260305 
-odoo-1  | 2026-03-05 19:40:38,265 1 INFO ? odoo: addons paths: ['/usr/lib/python3/dist-packages/odoo/addons', '/var/lib/odoo/addons/17.0', '/mnt/extra-addons', '/mnt/extra-addons/micro_saas'] 
+# Start the Master
+sudo docker compose up -d --build
 ```
 
-The system is now ready for use on version 17.0.
+## 2. Migration Details (Odoo 19 -> 17.0)
+
+Done on 2026-03-05:
+- **Submode Update**: Switched `micro_saas` to 17.0 branch in `addons/micro_saas`.
+- **Docker Fixes**: Removed `--break-system-packages` from Dockerfile.
+- **Sidecar Support**: Added automated Nginx sidecar config for child instances.
+- **Manager Update**: Verified `aei_saas_manager` compatibility with Odoo 17.0.
+
+## 3. Template Management
+New templates added:
+- Odoo 17 (Nginx Sidecar)
+- Odoo 18 (Nginx Sidecar)
+- Odoo 19 (Nginx Sidecar)
+
+These templates ensure that each child instance has proper routing through its own Nginx container.
