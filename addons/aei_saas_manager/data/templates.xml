@@ -4,6 +4,12 @@
         <!-- Odoo 17 Template -->
         <record id="template_odoo_17_nginx" model="docker.compose.template">
             <field name="name">Odoo 17 (Nginx Sidecar)</field>
+            <field name="template_odoo_conf">[options]
+addons_path = /mnt/extra-addons
+admin_passwd = admin
+data_dir = /var/lib/odoo
+proxy_mode = True
+</field>
             <field name="template_dc_body"><![CDATA[
 version: '3'
 services:
@@ -53,6 +59,12 @@ services:
         <!-- Odoo 18 Template -->
         <record id="template_odoo_18_nginx" model="docker.compose.template">
             <field name="name">Odoo 18 (Nginx Sidecar)</field>
+            <field name="template_odoo_conf">[options]
+addons_path = /mnt/extra-addons
+admin_passwd = admin
+data_dir = /var/lib/odoo
+proxy_mode = True
+</field>
             <field name="template_dc_body"><![CDATA[
 version: '3'
 services:
@@ -102,6 +114,12 @@ services:
         <!-- Odoo 19 Template -->
         <record id="template_odoo_19_nginx" model="docker.compose.template">
             <field name="name">Odoo 19 (Nginx Sidecar)</field>
+            <field name="template_odoo_conf">[options]
+addons_path = /mnt/extra-addons
+admin_passwd = admin
+data_dir = /var/lib/odoo
+proxy_mode = True
+</field>
             <field name="template_dc_body"><![CDATA[
 version: '3'
 services:
