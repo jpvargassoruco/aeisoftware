@@ -67,7 +67,7 @@
                         </page>
 
                         <page string="Variables" name="variables">
-                            <field name="instance_variable_ids" context="{'default_instance_id': active_id}">
+                            <field name="variable_ids" context="{'default_instance_id': active_id}">
                                 <tree editable="bottom" create="false" delete="false">
                                     <field name="display_name" string="Name"/>
                                     <field name="demo_value" required="1"/>
