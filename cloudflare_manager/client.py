@@ -24,7 +24,8 @@ class CloudflareTunnelManager:
         url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}/configurations"
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
-        return response.json()['result']
+        data = response.json()
+        return data.get('result') or {}
 
     def update_tunnel_config(self, tunnel_id: str, new_config: dict) -> dict:
         """
@@ -33,7 +34,8 @@ class CloudflareTunnelManager:
         url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}/configurations"
         response = requests.put(url, headers=self.headers, json=new_config)
         response.raise_for_status()
-        return response.json()['result']
+        data = response.json()
+        return data.get('result') or {}
 
     def add_route_to_tunnel(self, tunnel_id: str, hostname: str, service: str) -> bool:
         """
@@ -42,33 +44,41 @@ class CloudflareTunnelManager:
         """
         try:
             current_data = self.get_tunnel_config(tunnel_id)
-            # The config object is usually nested like: {"config": {"ingress": [...]}}
-            ingress_rules = current_data.get('config', {}).get('ingress', [])
-            
-            if not ingress_rules:
-                logger.warning("No existing ingress rules found. Aborting to avoid breaking tunnel.")
+            if not current_data:
+                logger.error(f"Could not fetch data for tunnel {tunnel_id}")
                 return False
 
-            # Check if route already exists
-            for rule in ingress_rules:
-                if rule.get('hostname') == hostname:
-                    logger.info(f"Hostname {hostname} already exists in tunnel {tunnel_id}.")
-                    return True
-
+            # The config object is usually nested like: {"config": {"ingress": [...]}}
+            config = current_data.get('config') or {}
+            ingress_rules = config.get('ingress', [])
+            
             new_rule = {
                 "hostname": hostname,
                 "service": service
             }
 
-            # Insert before the last catch-all rule (which usually has no hostname and service http_status:404)
-            # Find the index of the catch-all rule
-            catch_all_idx = len(ingress_rules)
-            for i, rule in enumerate(ingress_rules):
-                if 'hostname' not in rule and 'http_status:404' in rule.get('service', ''):
-                    catch_all_idx = i
-                    break
-            
-            ingress_rules.insert(catch_all_idx, new_rule)
+            if not ingress_rules:
+                logger.info("No existing ingress rules found. Initializing.")
+                # If empty, create with the new rule and a default catch-all
+                ingress_rules = [
+                    new_rule,
+                    {"service": "http_status:404"}
+                ]
+            else:
+                # Check if route already exists
+                for rule in ingress_rules:
+                    if rule.get('hostname') == hostname:
+                        logger.info(f"Hostname {hostname} already exists in tunnel {tunnel_id}.")
+                        return True
+
+                # Insert before the last catch-all rule (which usually has no hostname and service http_status:404)
+                catch_all_idx = len(ingress_rules)
+                for i, rule in enumerate(ingress_rules):
+                    if 'hostname' not in rule and 'http_status:404' in rule.get('service', ''):
+                        catch_all_idx = i
+                        break
+                
+                ingress_rules.insert(catch_all_idx, new_rule)
             
             # Prepare payload
             payload = {"config": {"ingress": ingress_rules}}

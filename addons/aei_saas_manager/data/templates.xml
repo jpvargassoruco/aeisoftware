@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <data noupdate="0">
         <!-- Odoo 17 Template -->
         <record id="template_odoo_17_nginx" model="docker.compose.template">
             <field name="name">Odoo 17 (Nginx Sidecar)</field>
