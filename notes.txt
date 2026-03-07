@@ -24,10 +24,11 @@ export CF_ZONE_ID="8a6fcaacd01aa1d8e544c85df5a88c8c"
 export CF_TUNNEL_ID="3829a206-f7ed-4e6a-b75d-954444eaa4a4"
 
 sudo visudo and add the line: Defaults timestamp_timeout=30
+
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 
-Paso C: Verificar la URL del Sistema
+Verificar la URL del Sistema
 Dentro de Odoo (Modo desarrollador):
 
 Ve a Ajustes > Técnico > Parámetros del sistema.
