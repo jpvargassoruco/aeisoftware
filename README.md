@@ -7,37 +7,39 @@ The Docker architecture for the Master instance and the GitOps pipeline are now 
 SSH into your VM and run the following commands to start the Master Instance:
 
 ```bash
-# Clone the repository (if not already present)
-# git clone https://github.com/jpvargassoruco/aeisoftware.git
-# cd aeisoftware
+# Clone the repository
+git clone git@github.com:jpvargassoruco/aeisoftware.git
+cd aeisoftware
 
-# Export your Cloudflare configuration
-export CF_API_TOKEN="your_cloudflare_token"
-export CF_ACCOUNT_ID="your_account_id"
-export CF_ZONE_ID="your_zone_id"
-export CF_TUNNEL_ID="your_tunnel_id"
+# Create the external network (mandatory for Traefik)
+sudo docker network create web-proxy
 
-# Launch the Master Instance
+# Launch the Master Instance and Traefik
 sudo docker compose up -d --build
 ```
 
 ### What this does:
 - Spins up a **Postgres 15** database.
-- Builds the **Master Odoo 17.0** container with required dependencies (`requests`, `docker-cli`).
-- Sets up an **Nginx reverse proxy** to handle standard traffic and WebSockets for the Master.
+- Builds the **Master Odoo 17.0** container.
+- Launches **Traefik** as the reverse proxy for the entire stack.
+- Configures automatic routing for the master instance (Port 8069 and 8072 for WebSockets).
 
 ## 2. Odoo Setup
-1. **Access the Master**: Open `http://<your-server-ip>`.
+1. **Access the Master**: Open `http://master.sdnbo.net` (or your configured domain).
 2. **Database Creation**: Create a database. **Important**: Check "Demo Data" to load default templates.
 3. **Install Manager**: Go to Apps and install **AEI SaaS Manager**.
 
 ## 3. Provisioning Child Instances
-1. Navigate to **Instance Management** -> **Odoo Instances**.
-2. Create a new instance and select a template:
-   - **Odoo 17/18/19 (Nginx Sidecar)**: Recommended for full WebSocket support.
-3. Enter the **Domain Name** (e.g., `client1.aeisoftware.com`).
-4. Click **Start Instance**.
-   - This launches child containers and automatically configures Cloudflare.
+
+You can now use the automated script to create new Odoo instances compatible with Traefik:
+
+```bash
+# Usage: ./crear_instancia_odoo.sh <instance_name> <domain>
+./crear_instancia_odoo.sh client1 client1.sdnbo.net
+```
+
+- This script generates a dedicated directory, `odoo.conf`, and `docker-compose.yml` with the correct Traefik labels.
+- It also handles secret generation for PostgreSQL.
 
 ---
 

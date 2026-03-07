@@ -40,24 +40,54 @@ services:
       # Shared path for child instances
       - /home/ubuntu/odoo_docker:/home/ubuntu/odoo_docker
     restart: always
-    # We do NOT expose 8069 locally because Nginx will handle routing
-    # to support longpolling for the Master
     expose:
       - "8069"
       - "8072"
+    networks:
+      - default
+      - web-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web-proxy"
+      - "traefik.http.middlewares.odoo-master-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      # ROUTER PRINCIPAL (HTTP 8069)
+      - "traefik.http.routers.odoo-master.rule=Host(`master.sdnbo.net`)"
+      - "traefik.http.routers.odoo-master.entrypoints=web"
+      - "traefik.http.routers.odoo-master.service=odoo-master-svc"
+      - "traefik.http.routers.odoo-master.middlewares=odoo-master-headers"
+      - "traefik.http.services.odoo-master-svc.loadbalancer.server.port=8069"
+      # ROUTER WEBSOCKET (Chat/Video 8072)
+      - "traefik.http.routers.odoo-master-ws.rule=Host(`master.sdnbo.net`) && PathPrefix(`/websocket`)"
+      - "traefik.http.routers.odoo-master-ws.entrypoints=web"
+      - "traefik.http.routers.odoo-master-ws.service=odoo-master-ws-svc"
+      - "traefik.http.routers.odoo-master-ws.middlewares=odoo-master-headers"
+      - "traefik.http.services.odoo-master-ws-svc.loadbalancer.server.port=8072"
 
-  # Nginx Reverse Proxy for the Master Instance 
-  # This listens on port 80 and routes to Odoo's 8069 (web) and 8072 (websocket)
-  nginx:
-    image: nginx:latest
-    depends_on:
-      - odoo
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--entrypoints.web.address=:80"
     ports:
       - "80:80"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - web-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.odoo-compress.compress=true"
+      - "traefik.http.middlewares.odoo-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
     restart: always
 
 volumes:
   odoo-db-data:
   odoo-web-data:
+
+networks:
+  web-proxy:
+    external: true
