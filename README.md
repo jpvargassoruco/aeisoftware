@@ -31,7 +31,20 @@ sudo docker compose up -d --build
 
 ## 3. Provisioning Child Instances
 
-You can now use the automated script to create new Odoo instances compatible with Traefik:
+You can now use the automated script to create new Odoo instances compatible with Traefik. If you provide Cloudflare credentials, the script will also automate DNS CNAME and Tunnel route creation.
+
+### Prerequisites
+
+Export your Cloudflare credentials before running the script:
+
+```bash
+export CF_API_TOKEN="your_token"
+export CF_ACCOUNT_ID="your_account_id"
+export CF_ZONE_ID="your_zone_id"
+export CF_TUNNEL_ID="your_tunnel_id"
+```
+
+### Usage
 
 ```bash
 # Usage: ./crear_instancia_odoo.sh <instance_name> <domain>
@@ -39,6 +52,7 @@ You can now use the automated script to create new Odoo instances compatible wit
 ```
 
 - This script generates a dedicated directory, `odoo.conf`, and `docker-compose.yml` with the correct Traefik labels.
+- If the Cloudflare variables are set, it automatically adds the domain to your tunnel and creates a CNAME record.
 - It also handles secret generation for PostgreSQL.
 
 ---

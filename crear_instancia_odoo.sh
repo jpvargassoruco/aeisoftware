@@ -30,9 +30,21 @@ if [ -z "$1" ] || [ -z "$2" ]; then
     exit 1
 fi
 
+# Validar variables de Cloudflare
+if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_ZONE_ID" ] || [ -z "$CF_TUNNEL_ID" ]; then
+    echo "=========================================================="
+    echo "ADVERTENCIA: Faltan variables de entorno de Cloudflare."
+    echo "Se crearán los archivos locales, pero NO se automatizará DNS/Tunnel."
+    echo "Variables requeridas: CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID, CF_TUNNEL_ID"
+    echo "=========================================================="
+    SKIP_CLOUDFLARE=true
+fi
+
 INSTANCE_NAME=$1
 DOMAIN=$2
 BASE_DIR="odoo-$INSTANCE_NAME"
+# Extraer el subdominio para el CNAME (asumiendo que es la primera parte del dominio)
+CNAME_NAME=$(echo "$DOMAIN" | cut -d'.' -f1)
 
 # --- 2. Creación de la estructura de directorios ---
 echo "[*] Creando directorio para la instancia: $INSTANCE_NAME..."
@@ -152,6 +164,20 @@ secrets:
   postgresql_password:
     file: ./odoo_pg_pass
 EOF
+
+# --- 6. Automatización de Cloudflare ---
+if [ "$SKIP_CLOUDFLARE" != "true" ]; then
+    echo "[*] Automatizando configuración en Cloudflare..."
+    # Cambiamos temporalmente al directorio raíz para ejecutar el script de python si es necesario,
+    # o simplemente lo llamamos con la ruta relativa correcta.
+    # Dado que estamos dentro de $BASE_DIR, subimos un nivel.
+    python3 ../cloudflare_provision.py --hostname "$DOMAIN" --service-url "http://traefik:80" --cname-name "$CNAME_NAME"
+    if [ $? -eq 0 ]; then
+        echo "[✓] Cloudflare configurado correctamente."
+    else
+        echo "[✗] Error al configurar Cloudflare. Revisa los logs."
+    fi
+fi
 
 echo "=========================================================="
 echo "¡Entorno para $INSTANCE_NAME creado con éxito!"
