@@ -4,20 +4,11 @@
 # No es necesario agregar puerto, el nuevo proxy reverso "Traefik" sabe como direccionar el tráfico al contenedor correcto observando la url del dominio de accceso.
 # Tampoco es necesario configurar cloudflare por que existe un registro DNS  de tipo Cname con un comodin que reenvia todos los subdominios de sdnbo.net al tunel correcto.
 
-# En Cloudflare DNS:
-# Ve a tu zona DNS (sdnbo.net).
-# Crea un nuevo registro CNAME.
-# Nombre: * (el asterisco es el comodín).
-# Target: El ID de tu túnel (ej. [ID-DE-TU-TUNEL].cfargotunnel.com).
-# Proxy status: Proxied (Nube naranja).
-#
-# En Cloudflare Tunnel (Dashboard):
-# En lugar de crear múltiples "Public Hostnames", crea uno solo que atrape todo:
-# Public Hostname: *.sdnbo.net
-# Service: http://localhost:80 (Asumiendo que Traefik escucha en el puerto 80 del host).
-# Configuración Adicional: Asegúrate de que WebSockets esté habilitado en la pestaña Network del túnel.
-
-
+# No olvidar las variables de entorno de Cloudflare
+#export CF_API_TOKEN="your_token"
+#export CF_ACCOUNT_ID="your_account_id"
+#export CF_ZONE_ID="your_zone_id"
+#export CF_TUNNEL_ID="your_tunnel_id"
 
 # --- 1. Validaciones iniciales ---
 if [ -z "$1" ] || [ -z "$2" ]; then
