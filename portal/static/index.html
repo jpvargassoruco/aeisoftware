@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aeisoftware SaaS Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e1a;
+  --surface: #111827;
+  --surface2: #1a2235;
+  --border: #1e2d45;
+  --accent: #6366f1;
+  --accent2: #8b5cf6;
+  --green: #10b981;
+  --red: #ef4444;
+  --yellow: #f59e0b;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+  --radius: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.topbar {
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  padding: 0 2rem; height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 20px rgba(99,102,241,.4);
+}
+.topbar h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .5px; }
+.topbar .meta { font-size: .8rem; opacity: .8; }
+.container { max-width: 1280px; margin: 0 auto; padding: 2rem; }
+.section-title { font-size: .75rem; font-weight: 600; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem;
+}
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+@media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+.stat { text-align: center; }
+.stat .num { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
+.stat .lbl { font-size: .8rem; color: var(--text-muted); margin-top: .25rem; }
+.badge {
+  display: inline-block; padding: .2rem .6rem; border-radius: 999px;
+  font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+}
+.badge.running   { background: rgba(16,185,129,.15); color: var(--green); }
+.badge.pending   { background: rgba(245,158,11,.15);  color: var(--yellow); }
+.badge.failed    { background: rgba(239,68,68,.15);   color: var(--red); }
+.badge.unknown   { background: rgba(100,116,139,.15); color: var(--text-muted); }
+.instance-row {
+  display: flex; align-items: center; gap: 1rem; padding: 1rem;
+  background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border);
+  margin-bottom: .5rem; transition: border-color .2s;
+}
+.instance-row:hover { border-color: var(--accent); }
+.instance-info { flex: 1; }
+.instance-info .name { font-weight: 600; font-size: .95rem; }
+.instance-info .url  { font-size: .75rem; color: var(--accent); text-decoration: none; }
+.instance-info .url:hover { text-decoration: underline; }
+.instance-info .meta { font-size: .75rem; color: var(--text-muted); margin-top: .2rem; }
+.actions { display: flex; gap: .5rem; }
+.btn {
+  padding: .4rem .9rem; border-radius: 6px; border: none; cursor: pointer;
+  font-size: .8rem; font-weight: 500; transition: all .2s; font-family: 'Inter', sans-serif;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-danger  { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+.btn-danger:hover  { background: rgba(239,68,68,.3); }
+.btn-ghost   { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover   { background: rgba(255,255,255,.1); }
+.btn-sm { padding: .25rem .6rem; font-size: .75rem; }
+.form-row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-width: 180px; }
+.form-group label { font-size: .8rem; color: var(--text-muted); font-weight: 500; }
+.form-group input, .form-group select {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: .6rem .8rem; font-size: .85rem; font-family: 'Inter', sans-serif;
+  transition: border-color .2s;
+}
+.form-group input:focus, .form-group select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+}
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+  z-index: 100; align-items: center; justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 2rem; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 25px 60px rgba(0,0,0,.5);
+}
+.modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1.5rem;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.log-box {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 1rem; font-family: monospace; font-size: .75rem; color: #94a3b8;
+  max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+}
+.api-key-bar {
+  background: var(--surface2); border-bottom: 1px solid var(--border);
+  padding: .5rem 2rem; display: flex; align-items: center; gap: 1rem;
+  font-size: .8rem;
+}
+.api-key-bar label { color: var(--text-muted); }
+.api-key-bar input {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: .3rem .7rem; font-size: .8rem; font-family: monospace; width: 340px;
+}
+.toast {
+  position: fixed; bottom: 2rem; right: 2rem; padding: .8rem 1.5rem;
+  border-radius: 8px; font-size: .85rem; font-weight: 500; z-index: 200;
+  opacity: 0; transition: opacity .3s; pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.toast.success { background: var(--green); color: white; }
+.toast.error   { background: var(--red);   color: white; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3);
+  border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 3rem; color: var(--text-muted); }
+.empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+.version-tag { font-size: .7rem; background: var(--border); padding: .15rem .5rem;
+  border-radius: 4px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>⚡ Aeisoftware SaaS Portal</h1>
+  <span class="meta" id="cluster-info">Loading...</span>
+</div>
+<div class="api-key-bar">
+  <label>API Key:</label>
+  <input type="password" id="api-key" placeholder="Enter your API key..." value="">
+  <button class="btn btn-ghost btn-sm" onclick="refreshAll()">Refresh</button>
+</div>
+<div class="container">
+  <!-- Stats -->
+  <div class="grid" id="stats-section">
+    <div class="card stat"><div class="num" id="stat-total">—</div><div class="lbl">Total Instances</div></div>
+    <div class="card stat"><div class="num" id="stat-running" style="color:var(--green)">—</div><div class="lbl">Running</div></div>
+  </div>
+
+  <!-- Instances -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <div class="section-title" style="margin:0">Instances</div>
+    <button class="btn btn-primary" onclick="openCreate()">＋ New Instance</button>
+  </div>
+  <div id="instances-list"><div class="empty-state"><div class="icon">🔄</div>Loading...</div></div>
+
+  <!-- Templates -->
+  <div style="margin-top:2rem">
+    <div class="section-title">DB Templates (Ceph RGW S3)</div>
+    <div id="templates-list" class="card"></div>
+  </div>
+</div>
+
+<!-- Create Modal -->
+<div class="modal-overlay" id="create-modal">
+  <div class="modal">
+    <h2>Create New Odoo Instance</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Instance Name *</label>
+        <input id="f-name" placeholder="e.g. acme" pattern="[a-z0-9\-]+">
+      </div>
+      <div class="form-group">
+        <label>Domain *</label>
+        <input id="f-domain" placeholder="acme.aeisoftware.com">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Odoo Version</label>
+        <select id="f-version">
+          <option value="18" selected>Odoo 18</option>
+          <option value="17">Odoo 17</option>
+          <option value="19">Odoo 19</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>DB Password</label>
+        <input id="f-dbpass" type="password" placeholder="(defaults to 'odoo')">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>Addons Git Repo (optional)</label>
+        <input id="f-addons" placeholder="https://github.com/org/odoo-addons.git">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>DB Template (optional)</label>
+        <select id="f-template"><option value="">— No template —</option></select>
+      </div>
+      <div class="form-group">
+        <label>Custom Image (optional)</label>
+        <input id="f-image" placeholder="ghcr.io/org/odoo-custom:18">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Workers</label>
+        <input id="f-workers" type="number" value="2" min="1" max="8">
+      </div>
+      <div class="form-group">
+        <label>Admin Password</label>
+        <input id="f-adminpass" type="password" placeholder="admin">
+      </div>
+    </div>
+    <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-ghost" onclick="closeCreate()">Cancel</button>
+      <button class="btn btn-primary" id="btn-create" onclick="createInstance()">Create Instance</button>
+    </div>
+  </div>
+</div>
+
+<!-- Logs Modal -->
+<div class="modal-overlay" id="logs-modal">
+  <div class="modal" style="max-width:800px">
+    <h2>📋 Logs — <span id="logs-title"></span></h2>
+    <div class="log-box" id="log-content">Loading...</div>
+    <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1rem">
+      <button class="btn btn-ghost" onclick="document.getElementById('logs-modal').classList.remove('active')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Config Modal -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <h2>⚙️ Update Config — <span id="config-title"></span></h2>
+    <div class="form-row">
+      <div class="form-group"><label>Workers</label><input id="cfg-workers" type="number" min="1" max="16"></div>
+      <div class="form-group"><label>Max Cron Threads</label><input id="cfg-cron" type="number" min="0" max="4"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2"><label>Addons Git Repo</label><input id="cfg-addons" placeholder="https://github.com/..."></div>
+    </div>
+    <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-ghost" onclick="document.getElementById('config-modal').classList.remove('active')">Cancel</button>
+      <button class="btn btn-primary" id="btn-config-save" onclick="saveConfig()">Save & Restart</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let currentConfigInstance = null;
+
+const apiKey = () => document.getElementById('api-key').value;
+const headers = () => ({ 'Content-Type': 'application/json', 'X-API-Key': apiKey() });
+
+async function api(method, path, body) {
+  const r = await fetch(`/api${path}`, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok && r.status !== 204) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+function toast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function statusBadge(status) {
+  const s = (status || '').toLowerCase();
+  const cls = s === 'running' ? 'running' : s === 'pending' ? 'pending' : s === 'failed' ? 'failed' : 'unknown';
+  return `<span class="badge ${cls}">${status || 'unknown'}</span>`;
+}
+
+async function refreshAll() {
+  await Promise.all([loadInstances(), loadTemplates()]);
+}
+
+async function loadInstances() {
+  const el = document.getElementById('instances-list');
+  try {
+    const instances = await api('GET', '/instances');
+    document.getElementById('stat-total').textContent = instances.length;
+    document.getElementById('stat-running').textContent = instances.filter(i => i.pod_status === 'Running').length;
+    if (!instances.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">🚀</div><div>No instances yet. Create your first one!</div></div>';
+      return;
+    }
+    el.innerHTML = instances.map(i => `
+      <div class="instance-row">
+        <div style="font-size:1.8rem">🐙</div>
+        <div class="instance-info">
+          <div class="name">${i.name} <span class="version-tag">v${i.version}</span></div>
+          <a class="url" href="https://${i.name}.aeisoftware.com" target="_blank">↗ Open Instance</a>
+          <div class="meta">
+            ${i.restarts > 0 ? `<span style="color:var(--yellow)">⚠ ${i.restarts} restarts</span> · ` : ''}
+            ${i.addons_repo ? `📦 ${i.addons_repo.split('/').slice(-1)[0]}` : 'No addons'}
+            ${i.db_template ? ` · 🗄 ${i.db_template}` : ''}
+          </div>
+        </div>
+        <div>${statusBadge(i.pod_status)}</div>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" onclick="openLogs('${i.name}')">Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}', '${i.addons_repo || ''}')">Config</button>
+          <button class="btn btn-ghost btn-sm" onclick="restartInstance('${i.name}')">↺</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteInstance('${i.name}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div>${e.message}</div>`;
+  }
+}
+
+async function loadTemplates() {
+  const el = document.getElementById('templates-list');
+  try {
+    const { templates } = await api('GET', '/templates');
+    // Also update the create form select
+    const sel = document.getElementById('f-template');
+    sel.innerHTML = '<option value="">— No template —</option>' +
+      templates.map(t => `<option value="${t.key}">${t.key} (${t.size_mb} MB)</option>`).join('');
+    el.innerHTML = templates.length
+      ? templates.map(t => `
+          <div style="display:flex;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:1.2rem">🗄</span>
+            <span style="flex:1;font-size:.85rem">${t.key}</span>
+            <span style="font-size:.75rem;color:var(--text-muted)">${t.size_mb} MB · ${new Date(t.last_modified).toLocaleDateString()}</span>
+            <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${t.key}')">✕</button>
+          </div>`).join('')
+      : '<div style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1rem">No templates uploaded yet</div>';
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-muted);font-size:.85rem">Could not load templates: ${e.message}</div>`;
+  }
+}
+
+function openCreate() { document.getElementById('create-modal').classList.add('active'); }
+function closeCreate() { document.getElementById('create-modal').classList.remove('active'); }
+
+async function createInstance() {
+  const btn = document.getElementById('btn-create');
+  btn.innerHTML = '<span class="spinner"></span> Creating...'; btn.disabled = true;
+  try {
+    const overrides = {};
+    const workers = document.getElementById('f-workers').value;
+    const adminpass = document.getElementById('f-adminpass').value;
+    if (workers) overrides.workers = parseInt(workers);
+    if (adminpass) overrides.admin_passwd = adminpass;
+
+    const body = {
+      name: document.getElementById('f-name').value.trim(),
+      domain: document.getElementById('f-domain').value.trim(),
+      odoo_version: document.getElementById('f-version').value,
+      db_password: document.getElementById('f-dbpass').value || 'odoo',
+      db_template: document.getElementById('f-template').value || undefined,
+      addons_repo: document.getElementById('f-addons').value.trim() || undefined,
+      image: document.getElementById('f-image').value.trim() || undefined,
+      odoo_conf_overrides: overrides,
+    };
+    if (!body.name || !body.domain) throw new Error('Name and domain are required');
+    await api('POST', '/instances', body);
+    toast(`✅ Instance "${body.name}" is provisioning!`);
+    closeCreate();
+    setTimeout(loadInstances, 2000);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.innerHTML = 'Create Instance'; btn.disabled = false;
+  }
+}
+
+async function deleteInstance(name) {
+  if (!confirm(`Delete instance "${name}"? This removes all K8s resources.`)) return;
+  try {
+    await api('DELETE', `/instances/${name}?domain=${name}.aeisoftware.com`);
+    toast(`Instance "${name}" deleted.`);
+    loadInstances();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function restartInstance(name) {
+  try {
+    await api('POST', `/instances/${name}/restart`);
+    toast(`Restarting "${name}"...`);
+    setTimeout(loadInstances, 3000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openLogs(name) {
+  document.getElementById('logs-title').textContent = name;
+  document.getElementById('log-content').textContent = 'Loading...';
+  document.getElementById('logs-modal').classList.add('active');
+  try {
+    const { logs } = await api('GET', `/instances/${name}/logs?lines=80`);
+    document.getElementById('log-content').textContent = logs || '(no logs)';
+  } catch (e) {
+    document.getElementById('log-content').textContent = `Error: ${e.message}`;
+  }
+}
+
+function openConfig(name, addonsRepo) {
+  currentConfigInstance = name;
+  document.getElementById('config-title').textContent = name;
+  document.getElementById('cfg-addons').value = addonsRepo;
+  document.getElementById('config-modal').classList.add('active');
+}
+
+async function saveConfig() {
+  const btn = document.getElementById('btn-config-save');
+  btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  try {
+    const overrides = {};
+    const workers = document.getElementById('cfg-workers').value;
+    const cron = document.getElementById('cfg-cron').value;
+    if (workers) overrides.workers = workers;
+    if (cron) overrides.max_cron_threads = cron;
+    const addons = document.getElementById('cfg-addons').value.trim();
+    await api('PATCH', `/instances/${currentConfigInstance}/config`, {
+      odoo_conf_overrides: overrides,
+      addons_repo: addons || undefined,
+    });
+    await api('POST', `/instances/${currentConfigInstance}/restart`);
+    toast('Config saved and instance restarting.');
+    document.getElementById('config-modal').classList.remove('active');
+    setTimeout(loadInstances, 3000);
+  } catch (e) { toast(e.message, 'error'); } finally {
+    btn.innerHTML = 'Save & Restart'; btn.disabled = false;
+  }
+}
+
+async function deleteTemplate(key) {
+  if (!confirm(`Delete template "${key}"?`)) return;
+  try {
+    await api('DELETE', `/templates/${key}`);
+    toast(`Template "${key}" deleted.`);
+    loadTemplates();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Check connectivity
+fetch('/health').then(r => r.json())
+  .then(() => document.getElementById('cluster-info').textContent = 'K3s connected')
+  .catch(() => document.getElementById('cluster-info').textContent = '⚠ Connection error');
+
+// Auto-load if API key exists
+document.getElementById('api-key').addEventListener('keydown', e => {
+  if (e.key === 'Enter') refreshAll();
+});
+const savedKey = localStorage.getItem('portal_api_key') || '';
+if (savedKey) { document.getElementById('api-key').value = savedKey; refreshAll(); }
+document.getElementById('api-key').addEventListener('blur', () => {
+  localStorage.setItem('portal_api_key', apiKey());
+});
+</script>
+</body>
+</html>

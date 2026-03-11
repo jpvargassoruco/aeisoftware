@@ -1,0 +1,148 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portal-system
+  labels:
+    managed-by: saas-portal
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: saas-portal
+  namespace: portal-system
+---
+# ClusterRole — portal needs to manage odoo-* namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: saas-portal-manager
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "secrets", "configmaps",
+              "persistentvolumeclaims", "events"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: saas-portal-manager
+subjects:
+- kind: ServiceAccount
+  name: saas-portal
+  namespace: portal-system
+roleRef:
+  kind: ClusterRole
+  name: saas-portal-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Secret: portal config (API key + external credentials)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: portal-env
+  namespace: portal-system
+type: Opaque
+stringData:
+  PORTAL_API_KEY: "changeme-replace-with-strong-key"
+  PATRONI_HOST: "patroni-db.kube-system.svc.cluster.local"
+  PATRONI_PORT: "5432"
+  PATRONI_USER: "odoo"
+  PATRONI_PASS: "Ribentek2026+"
+  CF_API_TOKEN: ""
+  CF_ACCOUNT_ID: ""
+  CF_ZONE_ID: ""
+  CF_TUNNEL_ID: ""
+  S3_ENDPOINT: "http://10.40.1.240:7480"
+  S3_ACCESS_KEY: "aeisoftware"
+  S3_SECRET_KEY: ""
+  S3_BUCKET: "odoo-templates"
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-portal
+  namespace: portal-system
+  labels:
+    app: saas-portal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: saas-portal
+  template:
+    metadata:
+      labels:
+        app: saas-portal
+    spec:
+      serviceAccountName: saas-portal
+      containers:
+      - name: portal
+        image: ghcr.io/jpvargassoruco/aeisoftware/saas-portal:latest
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - secretRef:
+            name: portal-env
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: saas-portal-svc
+  namespace: portal-system
+spec:
+  selector:
+    app: saas-portal
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: saas-portal-ingress
+  namespace: portal-system
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: portal.aeisoftware.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: saas-portal-svc
+            port:
+              number: 8000
