@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odoo-odoo19
+  labels:
+    app: odoo
+    client: odoo19
+    odoo-version: "19"

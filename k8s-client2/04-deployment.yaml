@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client2-odoo
+  namespace: odoo-client2
+  labels:
+    app: odoo
+    client: client2
+    odoo-version: "18"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+      client: client2
+  template:
+    metadata:
+      labels:
+        app: odoo
+        client: client2
+        odoo-version: "18"
+    spec:
+      containers:
+      - name: odoo
+        image: odoo:18
+        ports:
+        - containerPort: 8069
+          name: http
+        - containerPort: 8072
+          name: websocket
+        env:
+        - name: HOST
+          valueFrom:
+            secretKeyRef:
+              name: client2-db-secret
+              key: db_host
+        - name: PORT
+          valueFrom:
+            secretKeyRef:
+              name: client2-db-secret
+              key: db_port
+        - name: USER
+          valueFrom:
+            secretKeyRef:
+              name: client2-db-secret
+              key: db_user
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: client2-db-secret
+              key: db_password
+        volumeMounts:
+        - name: odoo-data
+          mountPath: /var/lib/odoo
+        - name: odoo-addons
+          mountPath: /mnt/extra-addons
+        - name: odoo-config
+          mountPath: /etc/odoo/odoo.conf
+          subPath: odoo.conf
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: odoo-data
+        persistentVolumeClaim:
+          claimName: client2-odoo-data
+      - name: odoo-addons
+        persistentVolumeClaim:
+          claimName: client2-odoo-addons
+      - name: odoo-config
+        configMap:
+          name: client2-odoo-conf

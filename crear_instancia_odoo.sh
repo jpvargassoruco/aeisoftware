@@ -64,6 +64,8 @@ NAMESPACE="odoo-${K8S_NAME}"
 CNAME_NAME=$(echo "$DOMAIN" | cut -d'.' -f1)
 
 # --- 2. Creación de la estructura de directorios ---
+# Guardar directorio del script ANTES de hacer cd
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 BASE_DIR="k8s-${K8S_NAME}"
 echo "[*] Creando directorio: $BASE_DIR"
 mkdir -p "$BASE_DIR"
@@ -306,7 +308,6 @@ EOF
 # --- 11. Automatización de Cloudflare ---
 if [ "$SKIP_CLOUDFLARE" != "true" ]; then
     echo "[*] Automatizando configuración en Cloudflare..."
-    SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
     python3 "$SCRIPT_DIR/cloudflare_provision.py" \
         --hostname "$DOMAIN" \
         --service-url "http://traefik.kube-system.svc.cluster.local:80" \
