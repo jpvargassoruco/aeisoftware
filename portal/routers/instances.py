@@ -179,6 +179,8 @@ async def list_instances():
     namespaces = core.list_namespace(label_selector="managed-by=saas-portal")
     result = []
     for ns in namespaces.items:
+        if not ns.metadata.name.startswith("odoo-"):
+            continue   # skip portal-system and other non-odoo namespaces
         client_name = ns.metadata.name.removeprefix("odoo-")
         pods = core.list_namespaced_pod(ns.metadata.name, label_selector="app=odoo")
         pod_status = "unknown"
