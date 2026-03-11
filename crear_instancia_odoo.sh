@@ -143,7 +143,7 @@ data:
     limit_time_real = 1200
 EOF
 
-# --- 7. PVC (almacenamiento persistente) ---
+# --- 7. PVC (almacenamiento persistente con Ceph) ---
 echo "[*] Generando manifiesto: 03-pvc.yaml"
 cat <<EOF > 03-pvc.yaml
 apiVersion: v1
@@ -151,24 +151,30 @@ kind: PersistentVolumeClaim
 metadata:
   name: ${K8S_NAME}-odoo-data
   namespace: ${NAMESPACE}
+  annotations:
+    description: "Odoo filestore — Ceph RBD (ReadWriteOnce, HA)"
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: ceph-rbd
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: ${K8S_NAME}-odoo-addons
   namespace: ${NAMESPACE}
+  annotations:
+    description: "Custom addons — CephFS (ReadWriteMany, shared across all workers)"
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
+  storageClassName: ceph-cephfs
   resources:
     requests:
-      storage: 2Gi
+      storage: 5Gi
 EOF
 
 # --- 8. Deployment ---
