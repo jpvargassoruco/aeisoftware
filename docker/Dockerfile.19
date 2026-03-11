@@ -1,0 +1,25 @@
+FROM odoo:19
+
+USER root
+
+# Extra Python packages commonly needed by Odoo 19 community addons
+RUN pip3 install --no-cache-dir \
+    zeep \
+    paramiko \
+    pandas \
+    openpyxl \
+    xlrd \
+    requests \
+    boto3 \
+    pycountry
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wkhtmltopdf \
+    fonts-noto \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional: copy company-wide addons into the image
+# COPY ./addons/ /usr/lib/python3/dist-packages/odoo/addons/
+
+USER odoo
