@@ -1,69 +1,55 @@
 # Aeisoftware K3s SaaS Platform — Implementation Plan
 
-## Current State ✅
+## Deployed Stack ✅
 
-| Component | Status |
+| Component | Details |
 |:---|:---|
-| K3s HA (3 CP + 3 workers) | Running |
-| Traefik v3.6.10 | Running (NodePort 30080) |
-| Cloudflare Tunnel | Connected |
-| Patroni PostgreSQL HA | Leader + 2 streaming replicas |
-| MinIO (temporary) | Single node — **to be replaced** |
-| client1 Odoo 17 | HTTP 303 ✅ |
-| client2 Odoo 18 | HTTP 303 ✅ |
-| client3 Odoo 19 | HTTP 303 ✅ |
+| K3s HA | 3 CP (etcd) + 3 workers |
+| Traefik + Cloudflare | v3.6.10, Tunnel 670c6e18 |
+| Patroni PostgreSQL | Leader + 2 streaming replicas, lag=0 |
+| **Ceph RBD** (`ceph-rbd`) | ReadWriteOnce — Odoo data |
+| **Ceph CephFS** (`ceph-cephfs`) | ReadWriteMany — addons shared across all workers |
+| **Ceph RGW** | S3 API — replaces MinIO |
+| Odoo clients | client1 (v17), client2 (v18), client3 (v19) |
 
 ---
 
-## Phase 5: Ceph Distributed Storage (Next)
+## Phase 6: Production Hardening (Next)
 
-> [!IMPORTANT]
-> MinIO is a **single point of failure**. The OpenStack cluster uses **Ceph** as its storage backend — we can consume it natively for fully HA storage.
+### HAProxy for Patroni Virtual IP
+Single DB write endpoint that always routes to the current Patroni leader.  
+Deploy on one control-plane node.
 
-### Option A: OpenStack Cinder CSI *(Recommended)*
-Install the OpenStack Cloud Controller + Cinder CSI plugin. K3s provisions Ceph-backed volumes through the OpenStack API automatically.
-
-**Pros**: No direct Ceph config, easiest to set up, same volumes as OpenStack VMs  
-**Cons**: ReadWriteMany requires CephFS configured separately
-
-### Option B: Ceph CSI Driver *(More control)*
-Install `ceph-csi` pointing directly at the Ceph cluster. Two StorageClasses:
-- `ceph-rbd` → ReadWriteOnce (Odoo data, Patroni WAL)
-- `ceph-cephfs` → **ReadWriteMany** (shared addons across all workers)
-
-Replace MinIO with **Ceph RADOS Gateway (RGW)** — S3-compatible, already part of Ceph, fully HA.
-
-### Questions before starting
-- [ ] Can we SSH or get credentials to the OpenStack Ceph admin?
-- [ ] Is the Ceph RADOS Gateway (RGW) already enabled on the cluster?
-- [ ] OpenStack Keystone credentials for Cinder CSI
-
----
-
-## Phase 6: Production Hardening
-
-- HAProxy + keepalived for Patroni virtual IP (single write endpoint)
-- Rancher portal for cluster management
-- Prometheus + Grafana monitoring
-- Azure migration: swap StorageClasses + managed PG → minimal downtime
-
----
-
-## Final Architecture Target
-
+### Rancher Portal
+```bash
+helm install rancher rancher-latest/rancher -n cattle-system \
+  --set hostname=rancher.aeisoftware.com
 ```
-Cloudflare (DNS + Tunnel)
-       │
- Traefik Ingress
-       │
-  Odoo Pods (workers)
-  ├── filestore → Ceph RBD PVC (RWO, per client)
-  └── addons   → Ceph CephFS PVC (RWM, shared)
-       │
- Patroni PG HA ← HAProxy virtual IP
-       │
- Ceph Cluster (OpenStack backend)
- ├── RBD  → block storage (data)
- ├── CephFS → shared filesystem (addons)
- └── RGW  → S3 API (replaces MinIO)
-```
+
+### Monitoring
+`kube-prometheus-stack` Helm chart → Prometheus + Grafana.
+
+---
+
+## Future: `odoo_k8s_saas` Module
+
+Customer buys a plan on Odoo E-commerce → Odoo module auto-provisions:
+1. K3s namespace + Deployment
+2. Ceph PVCs (data: `ceph-rbd`, addons: `ceph-cephfs`)
+3. Cloudflare DNS + Tunnel route
+4. Manages lifecycle: active → suspended → deleted
+
+---
+
+## Azure Migration Path
+
+> [!NOTE]
+> Pod manifests and `crear_instancia_odoo.sh` are cloud-agnostic.  
+> Only StorageClass names change.
+
+| Current (OpenStack/Ceph) | Azure Equivalent |
+|:---|:---|
+| `ceph-rbd` | Azure Disk (managed-premium) |
+| `ceph-cephfs` | Azure Files (NFS) |
+| Ceph RGW | Azure Blob Storage |
+| Patroni | Azure Database for PostgreSQL Flexible |

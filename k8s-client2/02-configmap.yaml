@@ -15,7 +15,7 @@ data:
     db_filter = client2
 
     ; Contraseña maestra
-    admin_passwd = 4u8FkFEykk5R7/Yxcx6ReC6KWorsUrxi
+    admin_passwd = TtqtqvbwpJLHXLZ2fnKB9R0UagGFk/W0
 
     ; Rutas
     addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons

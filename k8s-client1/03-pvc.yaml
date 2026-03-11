@@ -3,21 +3,27 @@ kind: PersistentVolumeClaim
 metadata:
   name: client1-odoo-data
   namespace: odoo-client1
+  annotations:
+    description: "Odoo filestore — Ceph RBD (ReadWriteOnce, HA)"
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: ceph-rbd
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: client1-odoo-addons
   namespace: odoo-client1
+  annotations:
+    description: "Custom addons — CephFS (ReadWriteMany, shared across all workers)"
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
+  storageClassName: ceph-cephfs
   resources:
     requests:
-      storage: 2Gi
+      storage: 5Gi
