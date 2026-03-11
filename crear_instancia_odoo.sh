@@ -202,6 +202,8 @@ spec:
         client: ${K8S_NAME}
         odoo-version: "${ODOO_VERSION}"
     spec:
+      securityContext:
+        fsGroup: 101    # odoo user — ensures Ceph RBD volume is writable
       containers:
       - name: odoo
         image: odoo:${ODOO_VERSION}
