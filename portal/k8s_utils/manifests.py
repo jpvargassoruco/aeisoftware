@@ -52,7 +52,8 @@ def build_secret(name: str, db_pass: str) -> dict:
 
 def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> dict:
     defaults = {
-        "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
+        # workers=0 = threaded mode — avoids HAProxy idle-connection drops on long-lived workers
+        "workers": 0, "max_cron_threads": 1, "gevent_port": 8072,
         "limit_memory_hard": 2684354560, "limit_memory_soft": 2147483648,
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
     }
@@ -231,21 +232,27 @@ def build_service(name: str) -> dict:
 
 
 def build_ingress(name: str, domain: str) -> dict:
+    """Build Ingress matching crear_instancia_odoo.sh: 2 paths (8069 + /websocket→8072)."""
     return {
         "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
         "metadata": {
             "name": f"{name}-odoo-ingress", "namespace": f"odoo-{name}",
             "annotations": {
                 "traefik.ingress.kubernetes.io/router.entrypoints": "web",
-                "traefik.ingress.kubernetes.io/router.middlewares": "kube-system-odoo-longpoll@kubernetescrd",
+                "traefik.ingress.kubernetes.io/custom-request-headers": "X-Forwarded-Proto: https",
             },
         },
         "spec": {
-            "ingressClassName": "traefik",
             "rules": [{
                 "host": domain,
-                "http": {"paths": [{"path": "/", "pathType": "Prefix",
-                    "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8069}}}}]},
+                "http": {"paths": [
+                    # Websocket/longpoll (Odoo live chat, discuss)
+                    {"path": "/websocket", "pathType": "Prefix",
+                     "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8072}}}},
+                    # Main HTTP
+                    {"path": "/", "pathType": "Prefix",
+                     "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8069}}}},
+                ]},
             }],
         },
     }
