@@ -20,6 +20,8 @@ spec:
         client: client2
         odoo-version: "18"
     spec:
+      securityContext:
+        fsGroup: 101    # odoo user — ensures Ceph RBD volume is writable
       containers:
       - name: odoo
         image: odoo:18

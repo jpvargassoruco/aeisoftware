@@ -14,7 +14,7 @@
 # export CF_ACCOUNT_ID="your_account_id"
 # export CF_ZONE_ID="your_zone_id"
 # export CF_TUNNEL_ID="your_tunnel_id"
-# export AZURE_PG_HOST="aeisoftwaredb.postgres.database.azure.com"
+# export AZURE_PG_HOST="patroni-db.kube-system.svc.cluster.local"  ← HAProxy VIP (always the leader)
 # export AZURE_PG_USER="odoo"
 # export AZURE_PG_PASSWORD="your_password"
 
@@ -143,7 +143,9 @@ data:
     limit_time_real = 1200
 EOF
 
-# --- 7. PVC (almacenamiento persistente con Ceph) ---
+# --- 7. PVC (almacenamiento persistente con CephFS RWX) ---
+# Both PVCs use ceph-cephfs (ReadWriteMany) so pods can move freely between
+# workers without RBD lock contention. RollingUpdate (zero downtime) works.
 echo "[*] Generando manifiesto: 03-pvc.yaml"
 cat <<EOF > 03-pvc.yaml
 apiVersion: v1
@@ -152,11 +154,11 @@ metadata:
   name: ${K8S_NAME}-odoo-data
   namespace: ${NAMESPACE}
   annotations:
-    description: "Odoo filestore — Ceph RBD (ReadWriteOnce, HA)"
+    description: "Odoo filestore — CephFS (ReadWriteMany, zero RBD lock contention)"
 spec:
   accessModes:
-    - ReadWriteOnce
-  storageClassName: ceph-rbd
+    - ReadWriteMany
+  storageClassName: ceph-cephfs
   resources:
     requests:
       storage: 10Gi

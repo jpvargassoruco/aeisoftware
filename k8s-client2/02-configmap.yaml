@@ -7,7 +7,7 @@ data:
   odoo.conf: |
     [options]
     ; Base de Datos (Azure PostgreSQL compartido)
-    db_host = 10.9.111.157
+    db_host = patroni-db.kube-system.svc.cluster.local
     db_port = 5432
     db_user = odoo
     db_password = Ribentek2026+
@@ -15,7 +15,7 @@ data:
     db_filter = client2
 
     ; Contraseña maestra
-    admin_passwd = TtqtqvbwpJLHXLZ2fnKB9R0UagGFk/W0
+    admin_passwd = xcVnj54njyf2NzJaapQpc/dDLr0QCa8W
 
     ; Rutas
     addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons

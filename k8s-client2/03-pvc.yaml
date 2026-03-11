@@ -4,11 +4,11 @@ metadata:
   name: client2-odoo-data
   namespace: odoo-client2
   annotations:
-    description: "Odoo filestore — Ceph RBD (ReadWriteOnce, HA)"
+    description: "Odoo filestore — CephFS (ReadWriteMany, zero RBD lock contention)"
 spec:
   accessModes:
-    - ReadWriteOnce
-  storageClassName: ceph-rbd
+    - ReadWriteMany
+  storageClassName: ceph-cephfs
   resources:
     requests:
       storage: 10Gi
