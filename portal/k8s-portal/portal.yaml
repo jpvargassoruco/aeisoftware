@@ -1,11 +1,9 @@
 ---
-# Namespace
+# Namespace — NOTE: no managed-by:saas-portal label (that's only for client odoo-* namespaces)
 apiVersion: v1
 kind: Namespace
 metadata:
   name: portal-system
-  labels:
-    managed-by: saas-portal
 ---
 # ServiceAccount
 apiVersion: v1
@@ -47,7 +45,7 @@ roleRef:
   name: saas-portal-manager
   apiGroup: rbac.authorization.k8s.io
 ---
-# Secret: portal config (API key + external credentials)
+# Secret: portal config — update PORTAL_API_KEY before deploying to production
 apiVersion: v1
 kind: Secret
 metadata:
@@ -60,13 +58,13 @@ stringData:
   PATRONI_PORT: "5432"
   PATRONI_USER: "odoo"
   PATRONI_PASS: "Ribentek2026+"
-  CF_API_TOKEN: ""
-  CF_ACCOUNT_ID: ""
-  CF_ZONE_ID: ""
-  CF_TUNNEL_ID: ""
+  CF_API_TOKEN: "feVXj6XvlWKfhJNNiAFJmaA-MD_4G_iYaXEfY0K_"
+  CF_ACCOUNT_ID: "2755b41b811dc9afc7396ed5d1e27644"
+  CF_ZONE_ID: "8a6fcaacd01aa1d8e544c85df5a88c8c"
+  CF_TUNNEL_ID: "670c6e18-748b-4399-8fa4-7c78f3a1d342"
   S3_ENDPOINT: "http://10.40.1.240:7480"
-  S3_ACCESS_KEY: "aeisoftware"
-  S3_SECRET_KEY: ""
+  S3_ACCESS_KEY: "HG6ZI5H7Y9K0GOXYR5GX"
+  S3_SECRET_KEY: "ml7WYjuyurBCLDa6eZJ9zoaNUbmqAdCVW8YxI9Vs"
   S3_BUCKET: "odoo-templates"
 ---
 # Deployment
