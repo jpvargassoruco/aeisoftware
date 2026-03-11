@@ -1,0 +1,27 @@
+{
+    'name': 'K8s SaaS Provisioning',
+    'version': '18.0.1.0.0',
+    'category': 'Technical',
+    'summary': 'Auto-provision Odoo instances on K3s via the SaaS Portal API when a sale order is confirmed.',
+    'author': 'Aeisoftware',
+    'website': 'https://aeisoftware.com',
+    'license': 'LGPL-3',
+    'depends': [
+        'base',
+        'sale',
+        'mail',
+        'portal',
+    ],
+    'data': [
+        'security/ir.model.access.csv',
+        'data/mail_template.xml',
+        'views/saas_instance_views.xml',
+        'views/product_template_views.xml',
+        'views/sale_order_views.xml',
+        'views/res_config_settings_views.xml',
+    ],
+    'installable': True,
+    'auto_install': False,
+    'application': True,
+    'assets': {},
+}

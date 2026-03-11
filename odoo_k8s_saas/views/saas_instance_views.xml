@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- SaaS Instance Form View -->
+    <record id="view_saas_instance_form" model="ir.ui.view">
+        <field name="name">saas.instance.form</field>
+        <field name="model">saas.instance</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_provision" string="Provision" type="object"
+                            class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_open_instance" string="Open Instance ↗" type="object"
+                            class="btn-secondary" invisible="not url"/>
+                    <button name="action_cancel" string="Cancel &amp; Delete" type="object"
+                            class="btn-danger" invisible="state in ('draft','cancelled')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,provisioning,running,error"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="instance-slug"/></h1>
+                    </div>
+                    <group>
+                        <group string="Instance">
+                            <field name="domain"/>
+                            <field name="url" widget="url"/>
+                            <field name="odoo_version"/>
+                            <field name="partner_id"/>
+                        </group>
+                        <group string="Provisioning">
+                            <field name="db_template"/>
+                            <field name="addons_repo"/>
+                            <field name="custom_image"/>
+                            <field name="workers"/>
+                            <field name="sale_order_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" nolabel="1"/>
+                    </group>
+                    <div class="o_chatter">
+                        <field name="message_follower_ids"/>
+                        <field name="activity_ids"/>
+                        <field name="message_ids"/>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- SaaS Instance List View -->
+    <record id="view_saas_instance_list" model="ir.ui.view">
+        <field name="name">saas.instance.list</field>
+        <field name="model">saas.instance</field>
+        <field name="arch" type="xml">
+            <list decoration-success="state == 'running'" decoration-danger="state == 'error'"
+                  decoration-warning="state == 'provisioning'">
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="odoo_version"/>
+                <field name="domain"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'running'"
+                       decoration-warning="state == 'provisioning'"
+                       decoration-danger="state == 'error'"/>
+                <button name="action_open_instance" string="Open ↗" type="object" icon="fa-external-link"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_saas_instance" model="ir.actions.act_window">
+        <field name="name">SaaS Instances</field>
+        <field name="res_model">saas.instance</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_saas_root" name="SaaS" sequence="90"
+              groups="base.group_system"/>
+    <menuitem id="menu_saas_instances" name="Instances" parent="menu_saas_root"
+              action="action_saas_instance" sequence="10"/>
+</odoo>
