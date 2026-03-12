@@ -331,8 +331,24 @@ async function api(method, path, body) {
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
   if (!r.ok && r.status !== 204) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }));
-    throw new Error(err.detail || r.statusText);
+    let msg = `HTTP ${r.status}`;
+    try {
+      const err = await r.json();
+      if (typeof err.detail === 'string') {
+        msg = err.detail;
+      } else if (Array.isArray(err.detail)) {
+        // FastAPI Pydantic validation errors: [{loc:[...], msg:"...", type:"..."}]
+        msg = err.detail.map(e => {
+          const loc = e.loc ? e.loc.slice(-1)[0] : '';
+          return loc ? `${loc}: ${e.msg}` : e.msg;
+        }).join(' | ');
+      } else if (err.detail) {
+        msg = JSON.stringify(err.detail);
+      }
+    } catch (_) {
+      msg = r.statusText || msg; // r.statusText is empty in HTTP/2
+    }
+    throw new Error(msg);
   }
   return r.status === 204 ? null : r.json();
 }
@@ -344,16 +360,21 @@ async function apiRaw(method, path, body, contentType) {
     body
   });
   if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }));
-    throw new Error(err.detail || r.statusText);
+    let msg = `HTTP ${r.status}`;
+    try { const err = await r.json(); msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail); } catch (_) {}
+    throw new Error(msg);
   }
   return r.json();
 }
 
+// Force browser to paint DOM changes before an async operation
+const repaint = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
 function toast(msg, type = 'success') {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.className = `toast ${type} show`;
-  setTimeout(() => t.classList.remove('show'), 3500);
+  t.textContent = msg || '(unknown error)'; t.className = `toast ${type} show`;
+  const duration = type === 'error' ? 6000 : 3500;
+  setTimeout(() => t.classList.remove('show'), duration);
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -511,6 +532,7 @@ function closeCreate() { closeModal('create-modal'); }
 async function createInstance() {
   const btn = document.getElementById('btn-create');
   btn.innerHTML = '<span class="spinner"></span> Creating...'; btn.disabled = true;
+  await repaint(); // force browser to paint spinner before network call
   try {
     const overrides = {};
     const workers   = document.getElementById('f-workers').value;
@@ -556,12 +578,19 @@ function askDelete(name, isProtected) {
 async function confirmDelete() {
   const typed = document.getElementById('delete-confirm-input').value.trim();
   if (typed !== pendingDeleteName) { toast('Name does not match', 'error'); return; }
+  const btn = document.getElementById('btn-confirm-delete');
+  btn.innerHTML = '<span class="spinner"></span> Deleting...'; btn.disabled = true;
+  await repaint();
   try {
     await api('DELETE', `/instances/${pendingDeleteName}?domain=${pendingDeleteName}.aeisoftware.com`);
     toast(`Instance "${pendingDeleteName}" deleted.`);
     closeModal('delete-modal');
     loadInstances();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.innerHTML = 'Delete'; btn.disabled = false;
+  }
 }
 
 // ── Protect toggle ─────────────────────────────────────────
@@ -637,25 +666,34 @@ async function openConfig(name) {
 
 async function saveRawConf() {
   const conf = document.getElementById('cfg-odoo-conf').value;
+  const btn = document.querySelector('#tab-conf .btn-primary');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.innerHTML = '<span class="spinner"></span> Saving...'; btn.disabled = true; }
+  await repaint();
   try {
     await apiRaw('PUT', `/instances/${currentInstance}/config`, conf, 'text/plain');
     await api('POST', `/instances/${currentInstance}/restart`);
     toast('✅ Config saved. Instance restarting...');
     setTimeout(loadInstances, 3000);
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(e.message, 'error'); } finally {
+    if (btn) { btn.textContent = orig || '💾 Save & Restart'; btn.disabled = false; }
+  }
 }
 
 async function saveRepos() {
   const repos = getRepos('cfg-repos-container');
+  const btn = document.querySelector('#tab-addons .btn-primary');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.innerHTML = '<span class="spinner"></span> Saving...'; btn.disabled = true; }
+  await repaint();
   try {
-    // We update the deployment annotation + restart via PATCH
-    const { odoo_conf } = await api('GET', `/instances/${currentInstance}/config`);
-    // Trigger re-provision is complex — for now save repos annotation and restart
     await api('PATCH', `/instances/${currentInstance}/config`, { addons_repos: repos });
     await api('POST', `/instances/${currentInstance}/restart`);
     toast('✅ Repos saved. Instance restarting — init containers will sync on next start.');
     setTimeout(loadInstances, 3000);
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(e.message, 'error'); } finally {
+    if (btn) { btn.textContent = orig || '💾 Save Repos'; btn.disabled = false; }
+  }
 }
 
 async function loadAddonUsage() {
