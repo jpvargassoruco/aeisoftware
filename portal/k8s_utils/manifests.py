@@ -42,11 +42,12 @@ def build_secret(name: str, db_pass: str) -> dict:
         "metadata": {"name": f"{name}-db-secret", "namespace": f"odoo-{name}"},
         "type": "Opaque",
         "data": {
-            # Per-instance PG user: each instance has its own isolated user/db
+            # Isolation is achieved via per-instance DATABASE + db_filter in odoo.conf.
             "db_host":     b64(PATRONI_HOST),
             "db_port":     b64(PATRONI_PORT),
-            "db_user":     b64(name),        # <-- isolated per-instance PG user
-            "db_password": b64(db_pass),     # <-- per-instance PG user password
+            "db_user":     b64(PATRONI_USER),   # admin odoo user, allowed by pg_hba
+            "db_password": b64(PATRONI_PASS),   # admin odoo password
+            "admin_passwd": b64(db_pass),        # Odoo master password (admin_passwd)
         },
     }
 
@@ -54,9 +55,9 @@ def build_secret(name: str, db_pass: str) -> dict:
 def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> dict:
     """
     Build odoo.conf ConfigMap.
-    db_pass = per-instance PostgreSQL user password (also used as admin_passwd fallback).
-    Each instance connects to PostgreSQL as its own dedicated user '{name}',
-    providing database isolation even if db_filter is removed.
+    db_pass = Odoo master password (admin_passwd). Each instance connects as the
+    shared admin user (PATRONI_USER) but to its own dedicated database '{name}'.
+    db_filter restricts Odoo to only see its own database.
     """
     defaults = {
         # workers=0 = single-threaded, workers≥1 = pre-fork multiprocess.
@@ -71,8 +72,8 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> di
     conf = f"""[options]
 db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
-db_user = {name}
-db_password = {db_pass}
+db_user = {PATRONI_USER}
+db_password = {PATRONI_PASS}
 db_name = {name}
 db_filter = {name}
 admin_passwd = {admin_pass}
@@ -127,29 +128,18 @@ def build_deployment(
     init_containers = []
 
     # ── initContainer: setup-db ──────────────────────────────────────────────────
-    # Always runs. Creates a dedicated PostgreSQL user and database for this instance
-    # using the admin (Patroni) credentials. Odoo then connects as the per-instance
-    # user, which has no access to other databases — true isolation regardless of
-    # whether db_filter is set correctly in odoo.conf.
+    # Creates a dedicated database for this instance (owned by the admin odoo user).
+    # Odoo connects as the admin user but to its own named database.
+    # db_filter in odoo.conf ensures Odoo only sees its own database.
     db_setup_script = f"""
 apk add --no-cache aws-cli 2>/dev/null || true
 
-# 1) Create per-instance PG user (idempotent)
-PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -c \\
-  "DO \\$\\$ BEGIN \\
-     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{name}') THEN \\
-       EXECUTE format('CREATE USER %I WITH PASSWORD %L LOGIN', '{name}', '$INSTANCE_PASS'); \\
-     ELSE \\
-       EXECUTE format('ALTER USER %I WITH PASSWORD %L', '{name}', '$INSTANCE_PASS'); \\
-     END IF; \\
-   END \\$\\$;"
-
-# 2) Create database owned by instance user (if not exists)
+# 1) Create database owned by admin user (idempotent)
 DB_EXISTS=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
   -tAc "SELECT 1 FROM pg_database WHERE datname='{name}'" 2>/dev/null | tr -d ' ')
 if [ "$DB_EXISTS" != "1" ]; then
-  echo "[init] Creating database {name} owned by user {name}..."
-  PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -O {name} {name}
+  echo "[init] Creating database {name}..."
+  PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -O {PATRONI_USER} {name}
 """.strip()
 
     if db_template:
@@ -158,7 +148,7 @@ if [ "$DB_EXISTS" != "1" ]; then
   aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.dump \\
     --endpoint-url {S3_ENDPOINT} --no-verify-ssl 2>&1
   PGPASSWORD={PATRONI_PASS} pg_restore -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-    -d {name} --no-owner --role={name} /tmp/template.dump || true
+    -d {name} --no-owner /tmp/template.dump || true
   echo "[init] Template restored."
 """
 
@@ -166,10 +156,6 @@ if [ "$DB_EXISTS" != "1" ]; then
 else
   echo "[init] Database {name} already exists, skipping creation."
 fi
-
-# 3) Ensure full privileges for the instance user
-PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -c \\
-  "GRANT ALL PRIVILEGES ON DATABASE \\"{name}\\" TO \\"{name}\\";"
 echo "[init] Database setup complete."
 """.strip()
 
@@ -178,13 +164,12 @@ echo "[init] Database setup complete."
         "image": "postgres:16-alpine",
         "command": ["sh", "-c", db_setup_script],
         "env": [
-            # INSTANCE_PASS comes from the K8s secret (per-instance PG user password)
-            {"name": "INSTANCE_PASS", "valueFrom": {"secretKeyRef": {"name": f"{name}-db-secret", "key": "db_password"}}},
             {"name": "AWS_ACCESS_KEY_ID",     "value": S3_ACCESS_KEY},
             {"name": "AWS_SECRET_ACCESS_KEY", "value": S3_SECRET_KEY},
             {"name": "AWS_DEFAULT_REGION",    "value": "us-east-1"},
         ],
     })
+
 
     # initContainer 2: sync addons — one directory per repo
     # Each repo clones into /mnt/extra-addons/<repo-name>/
