@@ -551,8 +551,11 @@ async function createInstance() {
       odoo_conf_overrides: overrides,
     };
     if (!body.name || !body.domain) throw new Error('Name and domain are required');
-    await api('POST', '/instances', body);
+    const resp = await api('POST', '/instances', body);
     toast(`✅ Instance "${body.name}" is provisioning!`);
+    if (resp && resp.cf_warning) {
+      setTimeout(() => toast(`⚠️ Cloudflare: ${resp.cf_warning}`, 'error'), 1500);
+    }
     closeCreate();
     setTimeout(loadInstances, 2000);
   } catch (e) {

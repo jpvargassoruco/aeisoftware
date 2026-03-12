@@ -98,7 +98,9 @@ async def _configure_cloudflare(name: str, domain: str):
         return
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
     tunnel_domain = f"{CF_TUNNEL_ID}.cfargotunnel.com"
-    async with httpx.AsyncClient(timeout=15) as http:
+    # Use explicit timeout for each phase (connect is often the slow one inside K8s)
+    timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as http:
         # 1. Add/update DNS record (upsert: delete existing first, then create)
         existing = await http.get(
             f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
@@ -143,7 +145,8 @@ async def _remove_cloudflare(domain: str):
         print("[cf] Skipping remove: CF credentials not set")
         return
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=15) as http:
+    timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as http:
         # 1. Delete DNS CNAME record(s) for this domain
         r = await http.get(
             f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
@@ -199,10 +202,17 @@ async def create_instance(body: InstanceCreate):
     _safe_create(core.create_namespaced_service, ns, build_service(body.name))
     _safe_create(net.create_namespaced_ingress, ns, build_ingress(body.name, body.domain))
 
-    await _configure_cloudflare(body.name, body.domain)
+    cf_warning = None
+    try:
+        await _configure_cloudflare(body.name, body.domain)
+    except Exception as cf_err:
+        cf_warning = str(cf_err)
+        print(f"[cf] WARNING: could not configure Cloudflare for {body.domain}: {cf_err}")
 
     return {"name": body.name, "domain": body.domain,
-            "url": f"https://{body.domain}", "status": "provisioning"}
+            "url": f"https://{body.domain}", "status": "provisioning",
+            "cf_warning": cf_warning}
+
 
 
 # ─── List ──────────────────────────────────────────────────────────────────────
