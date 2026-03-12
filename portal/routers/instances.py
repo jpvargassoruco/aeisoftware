@@ -92,59 +92,88 @@ def _repos_annotation(repos: List[AddonRepo]) -> str:
 
 
 async def _configure_cloudflare(name: str, domain: str):
-    """Add Cloudflare DNS CNAME + Tunnel ingress route."""
-    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID]):
+    """Add Cloudflare DNS CNAME + Tunnel ingress route (idempotent)."""
+    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID, CF_ACCOUNT_ID]):
+        print("[cf] Skipping: CF credentials not set")
         return
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
     tunnel_domain = f"{CF_TUNNEL_ID}.cfargotunnel.com"
-    async with httpx.AsyncClient() as http:
-        await http.post(
+    async with httpx.AsyncClient(timeout=15) as http:
+        # 1. Add/update DNS record (upsert: delete existing first, then create)
+        existing = await http.get(
+            f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
+            headers=headers,
+        )
+        for rec in existing.json().get("result", []):
+            await http.delete(
+                f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records/{rec['id']}",
+                headers=headers,
+            )
+        dns_r = await http.post(
             f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records",
             headers=headers,
             json={"type": "CNAME", "name": domain, "content": tunnel_domain,
                   "proxied": True, "ttl": 1},
         )
+        print(f"[cf] DNS upsert {domain}: {dns_r.status_code}")
+
+        # 2. Update tunnel ingress (remove existing entry for this domain, then prepend)
         r = await http.get(
             f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
             headers=headers,
         )
         current = r.json().get("result", {}).get("config", {})
         ingress = current.get("ingress", [{"service": "http_status:404"}])
+        # Remove any existing entry for this domain (prevent duplicates)
+        ingress_filtered = [i for i in ingress if i.get("hostname") != domain]
+        ingress_no_catch = [i for i in ingress_filtered if i.get("hostname")]
+        catch_all       = [i for i in ingress_filtered if not i.get("hostname")]
         new_route = {"hostname": domain, "service": "http://traefik.kube-system.svc.cluster.local:80"}
-        ingress_no_catch = [i for i in ingress if i.get("hostname")]
-        catch_all = [i for i in ingress if not i.get("hostname")]
-        await http.put(
+        tunnel_r = await http.put(
             f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
             headers=headers,
             json={"config": {"ingress": ingress_no_catch + [new_route] + catch_all}},
         )
+        print(f"[cf] Tunnel ingress add {domain}: {tunnel_r.status_code}")
 
 
 async def _remove_cloudflare(domain: str):
-    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID]):
+    """Remove Cloudflare DNS CNAME + Tunnel ingress route for this domain."""
+    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID, CF_ACCOUNT_ID]):
+        print("[cf] Skipping remove: CF credentials not set")
         return
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient() as http:
+    async with httpx.AsyncClient(timeout=15) as http:
+        # 1. Delete DNS CNAME record(s) for this domain
         r = await http.get(
             f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
             headers=headers,
         )
-        for record in r.json().get("result", []):
-            await http.delete(
+        dns_records = r.json().get("result", [])
+        print(f"[cf] Found {len(dns_records)} DNS record(s) for {domain}")
+        for record in dns_records:
+            del_r = await http.delete(
                 f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records/{record['id']}",
                 headers=headers,
             )
+            print(f"[cf] DNS delete {record['id']}: {del_r.status_code}")
+
+        # 2. Remove from tunnel ingress configuration
         r2 = await http.get(
             f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
             headers=headers,
         )
         current = r2.json().get("result", {}).get("config", {})
-        ingress = [i for i in current.get("ingress", []) if i.get("hostname") != domain]
-        await http.put(
+        all_ingress = current.get("ingress", [])
+        filtered   = [i for i in all_ingress if i.get("hostname") != domain]
+        removed    = len(all_ingress) - len(filtered)
+        print(f"[cf] Removing {removed} tunnel route(s) for {domain} (was {len(all_ingress)}, now {len(filtered)})")
+        tunnel_r = await http.put(
             f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
             headers=headers,
-            json={"config": {"ingress": ingress}},
+            json={"config": {"ingress": filtered}},
         )
+        print(f"[cf] Tunnel ingress update: {tunnel_r.status_code} — {tunnel_r.text[:120]}")
 
 
 # ─── Create ────────────────────────────────────────────────────────────────────
