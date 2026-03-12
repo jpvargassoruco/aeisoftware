@@ -173,18 +173,18 @@ PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_U
 echo "[init] Database setup complete."
 """.strip()
 
-    init_containers.append({{
+    init_containers.append({
         "name": "setup-db",
         "image": "postgres:16-alpine",
         "command": ["sh", "-c", db_setup_script],
         "env": [
             # INSTANCE_PASS comes from the K8s secret (per-instance PG user password)
-            {{"name": "INSTANCE_PASS", "valueFrom": {{"secretKeyRef": {{"name": f"{name}-db-secret", "key": "db_password"}}}}}},
-            {{"name": "AWS_ACCESS_KEY_ID",     "value": S3_ACCESS_KEY}},
-            {{"name": "AWS_SECRET_ACCESS_KEY", "value": S3_SECRET_KEY}},
-            {{"name": "AWS_DEFAULT_REGION",    "value": "us-east-1"}},
+            {"name": "INSTANCE_PASS", "valueFrom": {"secretKeyRef": {"name": f"{name}-db-secret", "key": "db_password"}}},
+            {"name": "AWS_ACCESS_KEY_ID",     "value": S3_ACCESS_KEY},
+            {"name": "AWS_SECRET_ACCESS_KEY", "value": S3_SECRET_KEY},
+            {"name": "AWS_DEFAULT_REGION",    "value": "us-east-1"},
         ],
-    }})
+    })
 
     # initContainer 2: sync addons — one directory per repo
     # Each repo clones into /mnt/extra-addons/<repo-name>/
