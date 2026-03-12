@@ -238,24 +238,30 @@ def build_service(name: str) -> dict:
 
 
 def build_ingress(name: str, domain: str) -> dict:
-    """Build Ingress matching crear_instancia_odoo.sh: 2 paths (8069 + /websocket→8072)."""
+    """Build Ingress: / → 8069, /websocket → 8072, with X-Forwarded-Proto middleware.
+
+    Requires the 'odoo-headers' Traefik Middleware to exist in kube-system:
+      kubectl apply -f k8s-client1/odoo-headers-middleware.yaml
+    """
     return {
         "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
         "metadata": {
             "name": f"{name}-odoo-ingress", "namespace": f"odoo-{name}",
             "annotations": {
                 "traefik.ingress.kubernetes.io/router.entrypoints": "web",
-                "traefik.ingress.kubernetes.io/custom-request-headers": "X-Forwarded-Proto: https",
+                # References the Middleware CRD: <namespace>-<name>@kubernetescrd
+                "traefik.ingress.kubernetes.io/router.middlewares": "kube-system-odoo-headers@kubernetescrd",
             },
         },
         "spec": {
+            "ingressClassName": "traefik",
             "rules": [{
                 "host": domain,
                 "http": {"paths": [
-                    # Websocket/longpoll (Odoo live chat, discuss)
+                    # WebSocket/longpoll must come first (more specific)
                     {"path": "/websocket", "pathType": "Prefix",
                      "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8072}}}},
-                    # Main HTTP
+                    # Main Odoo HTTP
                     {"path": "/", "pathType": "Prefix",
                      "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8069}}}},
                 ]},

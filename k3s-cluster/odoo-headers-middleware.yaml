@@ -1,0 +1,13 @@
+---
+# Traefik Middleware applied cluster-wide (kube-system).
+# Injects X-Forwarded-Proto: https so Odoo (proxy_mode=True)
+# knows the original request came via HTTPS through Cloudflare.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: odoo-headers
+  namespace: kube-system
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"

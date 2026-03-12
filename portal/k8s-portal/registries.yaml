@@ -1,0 +1,12 @@
+mirrors:
+  ghcr.io:
+    endpoint:
+      - "https://ghcr.io"
+configs:
+  "ghcr.io":
+    auth:
+      username: jpvargassoruco
+      # password: your GitHub PAT with read:packages scope
+      # Get one at: https://github.com/settings/tokens/new
+      # Required scopes: read:packages
+      password: "REPLACE_WITH_GITHUB_PAT"

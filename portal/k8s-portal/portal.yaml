@@ -86,9 +86,12 @@ spec:
         app: saas-portal
     spec:
       serviceAccountName: saas-portal
+      imagePullSecrets:
+      - name: ghcr-credentials
       containers:
       - name: portal
         image: ghcr.io/jpvargassoruco/aeisoftware/saas-portal:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
           name: http
