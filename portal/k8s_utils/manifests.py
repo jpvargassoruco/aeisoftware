@@ -51,6 +51,11 @@ def build_secret(name: str, db_pass: str) -> dict:
 
 
 def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> dict:
+    """
+    Build odoo.conf ConfigMap.
+    NOTE: db_pass here is the Odoo ADMIN password (admin_passwd), NOT the PostgreSQL password.
+          PostgreSQL credentials always come from PATRONI_PASS env var.
+    """
     defaults = {
         # workers=0 = threaded mode — avoids HAProxy idle-connection drops on long-lived workers
         "workers": 0, "max_cron_threads": 1, "gevent_port": 8072,
@@ -58,14 +63,15 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> di
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
     }
     cfg = {**defaults, **overrides}
+    admin_pass = overrides.get('admin_passwd', db_pass or 'admin')
     conf = f"""[options]
 db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
 db_user = {PATRONI_USER}
-db_password = {db_pass}
+db_password = {PATRONI_PASS}
 db_name = {name}
 db_filter = {name}
-admin_passwd = {overrides.get('admin_passwd', 'admin')}
+admin_passwd = {admin_pass}
 addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
 data_dir = /var/lib/odoo
 workers = {cfg['workers']}
