@@ -26,8 +26,10 @@ class InstanceCreate(BaseModel):
     odoo_version: str = Field("18", pattern=r"^(17|18|19)$")
     db_template: Optional[str] = None          # e.g. "v18/starter.dump"
     addons_repos: List[AddonRepo] = Field(default_factory=list)
-    image: Optional[str] = None                # override image, e.g. "ghcr.io/org/odoo:18"
-    db_password: str = Field(default="odoo")   # Odoo master/admin password
+    image: Optional[str] = None                # override image
+    db_password: str = Field(default="odoo")   # Per-instance PostgreSQL user password.
+                                               # A dedicated PG user named '{name}' is created
+                                               # with this password. Also used as admin_passwd.
     odoo_conf_overrides: dict = Field(default_factory=dict)
 
 
@@ -44,6 +46,35 @@ def _k8s():
     except Exception:
         config.load_kube_config()
     return client.CoreV1Api(), client.AppsV1Api(), client.NetworkingV1Api()
+
+
+async def _drop_pg_resources(name: str):
+    """Drop the per-instance PostgreSQL database and role on instance deletion."""
+    import psycopg2
+    from psycopg2 import sql
+    from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
+    try:
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS,
+            dbname="postgres", connect_timeout=10
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        # Terminate any active connections to the database first
+        cur.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = %s AND pid <> pg_backend_pid()",
+            (name,)
+        )
+        # Drop database and role (idempotent)
+        cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(name)))
+        cur.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(name)))
+        conn.close()
+        print(f"[portal] Dropped PostgreSQL database and role: {name}")
+    except Exception as e:
+        # Log but don't fail the delete — K8s namespace is already being removed
+        print(f"[portal] Warning: could not drop PostgreSQL resources for {name}: {e}")
 
 
 def _safe_create(fn, *args, **kwargs):
@@ -387,7 +418,11 @@ async def delete_instance(name: str, domain: str = "", force: bool = False):
                 )
         except ApiException as e:
             if e.status != 404:
-                pass  # If deployment not found, allow namespace delete
+                pass
+
+    # Drop the PostgreSQL database and role BEFORE removing the namespace
+    # (so we can still access the K8s secret for any needed info)
+    await _drop_pg_resources(name)
 
     try:
         core.delete_namespace(ns)
