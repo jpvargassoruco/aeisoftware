@@ -8,18 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0a0e1a;
-  --surface: #111827;
-  --surface2: #1a2235;
-  --border: #1e2d45;
-  --accent: #6366f1;
-  --accent2: #8b5cf6;
-  --green: #10b981;
-  --red: #ef4444;
-  --yellow: #f59e0b;
-  --text: #e2e8f0;
-  --text-muted: #64748b;
-  --radius: 10px;
+  --bg: #0a0e1a; --surface: #111827; --surface2: #1a2235;
+  --border: #1e2d45; --accent: #6366f1; --accent2: #8b5cf6;
+  --green: #10b981; --red: #ef4444; --yellow: #f59e0b; --orange: #f97316;
+  --text: #e2e8f0; --text-muted: #64748b; --radius: 10px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -34,22 +26,19 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .container { max-width: 1280px; margin: 0 auto; padding: 2rem; }
 .section-title { font-size: .75rem; font-weight: 600; letter-spacing: 1.5px;
   text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
-.card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem;
-}
+.card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
 @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
 .stat { text-align: center; }
 .stat .num { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
 .stat .lbl { font-size: .8rem; color: var(--text-muted); margin-top: .25rem; }
-.badge {
-  display: inline-block; padding: .2rem .6rem; border-radius: 999px;
-  font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
-}
+.badge { display: inline-block; padding: .2rem .6rem; border-radius: 999px;
+  font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
 .badge.running   { background: rgba(16,185,129,.15); color: var(--green); }
 .badge.pending   { background: rgba(245,158,11,.15);  color: var(--yellow); }
-.badge.failed    { background: rgba(239,68,68,.15);   color: var(--red); }
+.badge.failed,
+.badge.crashloop { background: rgba(239,68,68,.15);   color: var(--red); }
 .badge.unknown   { background: rgba(100,116,139,.15); color: var(--text-muted); }
 .instance-row {
   display: flex; align-items: center; gap: 1rem; padding: 1rem;
@@ -57,68 +46,71 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
   margin-bottom: .5rem; transition: border-color .2s;
 }
 .instance-row:hover { border-color: var(--accent); }
-.instance-info { flex: 1; }
+.instance-row.protected { border-color: rgba(251,191,36,.4); }
+.instance-info { flex: 1; min-width: 0; }
 .instance-info .name { font-weight: 600; font-size: .95rem; }
 .instance-info .url  { font-size: .75rem; color: var(--accent); text-decoration: none; }
 .instance-info .url:hover { text-decoration: underline; }
-.instance-info .meta { font-size: .75rem; color: var(--text-muted); margin-top: .2rem; }
-.actions { display: flex; gap: .5rem; }
-.btn {
-  padding: .4rem .9rem; border-radius: 6px; border: none; cursor: pointer;
-  font-size: .8rem; font-weight: 500; transition: all .2s; font-family: 'Inter', sans-serif;
-}
+.instance-info .meta { font-size: .75rem; color: var(--text-muted); margin-top: .3rem; display:flex; flex-wrap:wrap; gap:.4rem; }
+.repo-chip { background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.3);
+  padding: .1rem .5rem; border-radius: 4px; font-size: .7rem; color: #a5b4fc; }
+.actions { display: flex; gap: .4rem; flex-shrink: 0; }
+.btn { padding: .4rem .9rem; border-radius: 6px; border: none; cursor: pointer;
+  font-size: .8rem; font-weight: 500; transition: all .2s; font-family: 'Inter', sans-serif; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent2); }
 .btn-danger  { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
 .btn-danger:hover  { background: rgba(239,68,68,.3); }
 .btn-ghost   { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--border); }
 .btn-ghost:hover   { background: rgba(255,255,255,.1); }
+.btn-warn    { background: rgba(251,191,36,.1); color: #fbbf24; border: 1px solid rgba(251,191,36,.3); }
+.btn-warn:hover    { background: rgba(251,191,36,.2); }
 .btn-sm { padding: .25rem .6rem; font-size: .75rem; }
 .form-row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .form-group { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-width: 180px; }
 .form-group label { font-size: .8rem; color: var(--text-muted); font-weight: 500; }
-.form-group input, .form-group select {
+.form-group input, .form-group select, .form-group textarea {
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   color: var(--text); padding: .6rem .8rem; font-size: .85rem; font-family: 'Inter', sans-serif;
   transition: border-color .2s;
 }
-.form-group input:focus, .form-group select:focus {
-  outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.15);
 }
-.modal-overlay {
-  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
-  z-index: 100; align-items: center; justify-content: center;
-}
+.form-group textarea { resize: vertical; font-family: monospace; font-size: .8rem; }
+.repo-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.repo-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: .5rem .7rem; font-size: .8rem; font-family: 'Inter', sans-serif; }
+.repo-row input:focus { outline: none; border-color: var(--accent); }
+.repo-url { flex: 3 !important; }
+.repo-branch { flex: 1 !important; min-width: 90px !important; }
+.add-repo-btn { background: rgba(99,102,241,.1); border: 1px dashed rgba(99,102,241,.4); 
+  color: var(--accent); border-radius: 6px; padding: .4rem .8rem; cursor: pointer;
+  font-size: .8rem; width: 100%; margin-top: .3rem; transition: all .2s; }
+.add-repo-btn:hover { background: rgba(99,102,241,.2); }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+  z-index: 100; align-items: center; justify-content: center; }
 .modal-overlay.active { display: flex; }
-.modal {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-  padding: 2rem; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto;
-  box-shadow: 0 25px 60px rgba(0,0,0,.5);
-}
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 2rem; width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto;
+  box-shadow: 0 25px 60px rgba(0,0,0,.5); }
 .modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1.5rem;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.log-box {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+.log-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 1rem; font-family: monospace; font-size: .75rem; color: #94a3b8;
-  max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
-}
-.api-key-bar {
-  background: var(--surface2); border-bottom: 1px solid var(--border);
-  padding: .5rem 2rem; display: flex; align-items: center; gap: 1rem;
-  font-size: .8rem;
-}
+  max-height: 380px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.conf-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: .8rem; font-family: monospace; font-size: .78rem; color: #94a3b8;
+  height: 340px; width: 100%; resize: vertical; white-space: pre; }
+.api-key-bar { background: var(--surface2); border-bottom: 1px solid var(--border);
+  padding: .5rem 2rem; display: flex; align-items: center; gap: 1rem; font-size: .8rem; }
 .api-key-bar label { color: var(--text-muted); }
-.api-key-bar input {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  color: var(--text); padding: .3rem .7rem; font-size: .8rem; font-family: monospace; width: 340px;
-}
-.toast {
-  position: fixed; bottom: 2rem; right: 2rem; padding: .8rem 1.5rem;
+.api-key-bar input { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: .3rem .7rem; font-size: .8rem; font-family: monospace; width: 320px; }
+.toast { position: fixed; bottom: 2rem; right: 2rem; padding: .8rem 1.5rem;
   border-radius: 8px; font-size: .85rem; font-weight: 500; z-index: 200;
-  opacity: 0; transition: opacity .3s; pointer-events: none;
-}
+  opacity: 0; transition: opacity .3s; pointer-events: none; }
 .toast.show { opacity: 1; }
 .toast.success { background: var(--green); color: white; }
 .toast.error   { background: var(--red);   color: white; }
@@ -129,6 +121,18 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
 .version-tag { font-size: .7rem; background: var(--border); padding: .15rem .5rem;
   border-radius: 4px; color: var(--text-muted); }
+.usage-row { display: flex; gap: 1rem; align-items: center; padding: .4rem 0;
+  border-bottom: 1px solid var(--border); font-size: .82rem; }
+.usage-bar { flex: 1; background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+.usage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 4px; }
+.tab-row { display: flex; gap: .5rem; border-bottom: 1px solid var(--border); margin-bottom: 1.2rem; }
+.tab { padding: .5rem .9rem; font-size: .82rem; cursor: pointer; color: var(--text-muted);
+  border-bottom: 2px solid transparent; transition: all .2s; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.section-label { font-size: .75rem; color: var(--text-muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: .6rem; }
 </style>
 </head>
 <body>
@@ -138,8 +142,8 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 </div>
 <div class="api-key-bar">
   <label>API Key:</label>
-  <input type="password" id="api-key" placeholder="Enter your API key..." value="">
-  <button class="btn btn-ghost btn-sm" onclick="refreshAll()">Refresh</button>
+  <input type="password" id="api-key" placeholder="Enter your API key...">
+  <button class="btn btn-ghost btn-sm" onclick="refreshAll()">↺ Refresh</button>
 </div>
 <div class="container">
   <!-- Stats -->
@@ -157,12 +161,18 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
   <!-- Templates -->
   <div style="margin-top:2rem">
-    <div class="section-title">DB Templates (Ceph RGW S3)</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div class="section-title" style="margin:0">DB Templates (Ceph RGW S3)</div>
+      <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+        ⬆ Upload
+        <input type="file" id="template-upload-input" style="display:none" onchange="uploadTemplate(this)">
+      </label>
+    </div>
     <div id="templates-list" class="card"></div>
   </div>
 </div>
 
-<!-- Create Modal -->
+<!-- ══════════════════ CREATE MODAL ══════════════════ -->
 <div class="modal-overlay" id="create-modal">
   <div class="modal">
     <h2>Create New Odoo Instance</h2>
@@ -180,39 +190,46 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
       <div class="form-group">
         <label>Odoo Version</label>
         <select id="f-version">
-          <option value="18" selected>Odoo 18</option>
           <option value="17">Odoo 17</option>
+          <option value="18" selected>Odoo 18</option>
           <option value="19">Odoo 19</option>
         </select>
-      </div>
-      <div class="form-group">
-        <label>DB Password</label>
-        <input id="f-dbpass" type="password" placeholder="(defaults to 'odoo')">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2">
-        <label>Addons Git Repo (optional)</label>
-        <input id="f-addons" placeholder="https://github.com/org/odoo-addons.git">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>DB Template (optional)</label>
-        <select id="f-template"><option value="">— No template —</option></select>
       </div>
       <div class="form-group">
         <label>Custom Image (optional)</label>
         <input id="f-image" placeholder="ghcr.io/org/odoo-custom:18">
       </div>
     </div>
+
+    <!-- Multi-repo widget -->
+    <div style="margin-bottom:1rem">
+      <div class="section-label">Addons Git Repos (optional)</div>
+      <div style="display:flex;gap:.4rem;margin-bottom:.3rem">
+        <span style="flex:3;font-size:.72rem;color:var(--text-muted)">Repository URL</span>
+        <span style="flex:1;font-size:.72rem;color:var(--text-muted)">Branch</span>
+        <span style="width:28px"></span>
+      </div>
+      <div id="repos-container"></div>
+      <button class="add-repo-btn" onclick="addRepoRow()">＋ Add repo</button>
+    </div>
+
     <div class="form-row">
       <div class="form-group">
-        <label>Workers</label>
-        <input id="f-workers" type="number" value="2" min="1" max="8">
+        <label>DB Template (optional)</label>
+        <select id="f-template"><option value="">— No template —</option></select>
       </div>
       <div class="form-group">
-        <label>Admin Password</label>
+        <label>Workers</label>
+        <input id="f-workers" type="number" value="2" min="0" max="16">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Odoo Master Password</label>
+        <input id="f-dbpass" type="password" placeholder="(defaults to 'odoo')">
+      </div>
+      <div class="form-group">
+        <label>Admin User Password</label>
         <input id="f-adminpass" type="password" placeholder="admin">
       </div>
     </div>
@@ -223,31 +240,76 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
   </div>
 </div>
 
-<!-- Logs Modal -->
+<!-- ══════════════════ LOGS MODAL ══════════════════ -->
 <div class="modal-overlay" id="logs-modal">
-  <div class="modal" style="max-width:800px">
+  <div class="modal" style="max-width:860px">
     <h2>📋 Logs — <span id="logs-title"></span></h2>
     <div class="log-box" id="log-content">Loading...</div>
     <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1rem">
-      <button class="btn btn-ghost" onclick="document.getElementById('logs-modal').classList.remove('active')">Close</button>
+      <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">↺ Refresh</button>
+      <button class="btn btn-ghost" onclick="closeModal('logs-modal')">Close</button>
     </div>
   </div>
 </div>
 
-<!-- Config Modal -->
+<!-- ══════════════════ CONFIG MODAL ══════════════════ -->
 <div class="modal-overlay" id="config-modal">
-  <div class="modal">
-    <h2>⚙️ Update Config — <span id="config-title"></span></h2>
-    <div class="form-row">
-      <div class="form-group"><label>Workers</label><input id="cfg-workers" type="number" min="1" max="16"></div>
-      <div class="form-group"><label>Max Cron Threads</label><input id="cfg-cron" type="number" min="0" max="4"></div>
+  <div class="modal" style="max-width:860px">
+    <h2>⚙️ Config — <span id="config-title"></span></h2>
+    <div class="tab-row">
+      <div class="tab active" onclick="switchTab('tab-conf')">odoo.conf</div>
+      <div class="tab" onclick="switchTab('tab-addons')">Addon Repos</div>
+      <div class="tab" onclick="switchTab('tab-usage', loadAddonUsage)">Disk Usage</div>
     </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2"><label>Addons Git Repo</label><input id="cfg-addons" placeholder="https://github.com/..."></div>
+
+    <!-- Tab: raw odoo.conf editor -->
+    <div class="tab-content active" id="tab-conf">
+      <div class="section-label">Edit odoo.conf directly — changes take effect after restart</div>
+      <textarea class="conf-box" id="cfg-odoo-conf" spellcheck="false"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:.8rem;margin-top:.8rem">
+        <button class="btn btn-primary btn-sm" onclick="saveRawConf()">💾 Save & Restart</button>
+      </div>
     </div>
-    <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1.5rem">
-      <button class="btn btn-ghost" onclick="document.getElementById('config-modal').classList.remove('active')">Cancel</button>
-      <button class="btn btn-primary" id="btn-config-save" onclick="saveConfig()">Save & Restart</button>
+
+    <!-- Tab: multi-repo editor -->
+    <div class="tab-content" id="tab-addons">
+      <div class="section-label">Addon Repositories — each syncs to its own subfolder in /mnt/extra-addons/</div>
+      <div style="display:flex;gap:.4rem;margin-bottom:.3rem">
+        <span style="flex:3;font-size:.72rem;color:var(--text-muted)">Repository URL</span>
+        <span style="flex:1;font-size:.72rem;color:var(--text-muted)">Branch</span>
+        <span style="width:28px"></span>
+      </div>
+      <div id="cfg-repos-container"></div>
+      <button class="add-repo-btn" onclick="addCfgRepoRow()">＋ Add repo</button>
+      <div style="display:flex;justify-content:flex-end;gap:.8rem;margin-top:.8rem">
+        <button class="btn btn-primary btn-sm" onclick="saveRepos()">💾 Save Repos & Restart</button>
+      </div>
+    </div>
+
+    <!-- Tab: disk usage -->
+    <div class="tab-content" id="tab-usage">
+      <div id="usage-list"><div style="color:var(--text-muted);font-size:.85rem">Loading...</div></div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+      <button class="btn btn-ghost" onclick="closeModal('config-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ DELETE CONFIRM MODAL ══════════════════ -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal" style="max-width:420px">
+    <h2>🗑 Delete Instance</h2>
+    <p style="color:var(--text-muted);margin-bottom:1.5rem;font-size:.9rem">
+      Type the instance name <strong id="delete-name-label" style="color:var(--text)"></strong> to confirm deletion:
+    </p>
+    <div class="form-group" style="margin-bottom:1.5rem">
+      <input id="delete-confirm-input" placeholder="Type instance name..." autocomplete="off">
+    </div>
+    <div style="display:flex;gap:.8rem;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('delete-modal')">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-delete" onclick="confirmDelete()">Delete</button>
     </div>
   </div>
 </div>
@@ -255,18 +317,35 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 <div class="toast" id="toast"></div>
 
 <script>
-let currentConfigInstance = null;
+let currentInstance = null;
+let pendingDeleteName = null;
 
 const apiKey = () => document.getElementById('api-key').value;
 const headers = () => ({ 'Content-Type': 'application/json', 'X-API-Key': apiKey() });
 
 async function api(method, path, body) {
-  const r = await fetch(`/api${path}`, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(`/api${path}`, {
+    method, headers: headers(),
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
   if (!r.ok && r.status !== 204) {
     const err = await r.json().catch(() => ({ detail: r.statusText }));
     throw new Error(err.detail || r.statusText);
   }
   return r.status === 204 ? null : r.json();
+}
+
+async function apiRaw(method, path, body, contentType) {
+  const r = await fetch(`/api${path}`, {
+    method,
+    headers: { 'Content-Type': contentType || 'text/plain', 'X-API-Key': apiKey() },
+    body
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.json();
 }
 
 function toast(msg, type = 'success') {
@@ -275,11 +354,51 @@ function toast(msg, type = 'success') {
   setTimeout(() => t.classList.remove('show'), 3500);
 }
 
-function statusBadge(status) {
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function switchTab(tabId, cb) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  event.target.classList.add('active');
+  if (cb) cb();
+}
+
+function statusBadge(status, restarts) {
   const s = (status || '').toLowerCase();
   const cls = s === 'running' ? 'running' : s === 'pending' ? 'pending' : s === 'failed' ? 'failed' : 'unknown';
-  return `<span class="badge ${cls}">${status || 'unknown'}</span>`;
+  let badge = `<span class="badge ${cls}">${status || 'unknown'}</span>`;
+  if (restarts > 0) badge += ` <span style="color:var(--yellow);font-size:.75rem">⚠ ${restarts}x</span>`;
+  return badge;
 }
+
+// ── Repo widgets ───────────────────────────────────────────
+
+function repoRow(containerId, url='', branch='') {
+  const container = document.getElementById(containerId);
+  const div = document.createElement('div');
+  div.className = 'repo-row';
+  div.innerHTML = `
+    <input class="repo-url" placeholder="https://github.com/org/addons.git" value="${url}">
+    <input class="repo-branch" placeholder="main / 17.0" value="${branch}">
+    <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>
+  `;
+  container.appendChild(div);
+}
+
+function addRepoRow()    { repoRow('repos-container'); }
+function addCfgRepoRow() { repoRow('cfg-repos-container'); }
+
+function getRepos(containerId) {
+  return [...document.querySelectorAll(`#${containerId} .repo-row`)]
+    .map(row => ({
+      url: row.querySelector('.repo-url').value.trim(),
+      branch: row.querySelector('.repo-branch').value.trim() || null
+    }))
+    .filter(r => r.url);
+}
+
+// ── Instance list ─────────────────────────────────────────
 
 async function refreshAll() {
   await Promise.all([loadInstances(), loadTemplates()]);
@@ -289,81 +408,120 @@ async function loadInstances() {
   const el = document.getElementById('instances-list');
   try {
     const instances = await api('GET', '/instances');
-    document.getElementById('stat-total').textContent = instances.length;
+    document.getElementById('stat-total').textContent   = instances.length;
     document.getElementById('stat-running').textContent = instances.filter(i => i.pod_status === 'Running').length;
     if (!instances.length) {
       el.innerHTML = '<div class="empty-state"><div class="icon">🚀</div><div>No instances yet. Create your first one!</div></div>';
       return;
     }
-    el.innerHTML = instances.map(i => `
-      <div class="instance-row">
+    el.innerHTML = instances.map(i => {
+      const repos  = i.addons_repos || [];
+      const reposHtml = repos.length
+        ? repos.map(r => `<span class="repo-chip">📦 ${r.url.split('/').pop().replace('.git','')}</span>`).join('')
+        : '<span style="opacity:.5">No addons</span>';
+      const lockBtn = i.protected
+        ? `<button class="btn btn-warn btn-sm" title="Protected — click to unlock" onclick="toggleProtect('${i.name}', false)">🔒</button>`
+        : `<button class="btn btn-ghost btn-sm" title="Click to protect from deletion" onclick="toggleProtect('${i.name}', true)">🔓</button>`;
+      return `
+      <div class="instance-row${i.protected ? ' protected' : ''}">
         <div style="font-size:1.8rem">🐙</div>
         <div class="instance-info">
-          <div class="name">${i.name} <span class="version-tag">v${i.version}</span></div>
+          <div class="name">${i.name} <span class="version-tag">v${i.version}</span>${i.protected ? ' <span style="color:#fbbf24;font-size:.75rem">🔒 protected</span>' : ''}</div>
           <a class="url" href="https://${i.name}.aeisoftware.com" target="_blank">↗ Open Instance</a>
-          <div class="meta">
-            ${i.restarts > 0 ? `<span style="color:var(--yellow)">⚠ ${i.restarts} restarts</span> · ` : ''}
-            ${i.addons_repo ? `📦 ${i.addons_repo.split('/').slice(-1)[0]}` : 'No addons'}
-            ${i.db_template ? ` · 🗄 ${i.db_template}` : ''}
-          </div>
+          <div class="meta">${reposHtml}${i.db_template ? ` <span>🗄 ${i.db_template}</span>` : ''}</div>
         </div>
-        <div>${statusBadge(i.pod_status)}</div>
+        <div>${statusBadge(i.pod_status, i.restarts)}</div>
         <div class="actions">
           <button class="btn btn-ghost btn-sm" onclick="openLogs('${i.name}')">Logs</button>
-          <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}', '${i.addons_repo || ''}')">Config</button>
-          <button class="btn btn-ghost btn-sm" onclick="restartInstance('${i.name}')">↺</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteInstance('${i.name}')">✕</button>
+          <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}', ${JSON.stringify(i.addons_repos || [])})">Config</button>
+          <button class="btn btn-ghost btn-sm" title="Restart" onclick="restartInstance('${i.name}')">↺</button>
+          ${lockBtn}
+          <button class="btn btn-danger btn-sm" onclick="askDelete('${i.name}', ${i.protected})">✕</button>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch (e) {
     el.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div>${e.message}</div>`;
   }
 }
 
+// ── Templates ──────────────────────────────────────────────
+
 async function loadTemplates() {
   const el = document.getElementById('templates-list');
   try {
     const { templates } = await api('GET', '/templates');
-    // Also update the create form select
     const sel = document.getElementById('f-template');
     sel.innerHTML = '<option value="">— No template —</option>' +
       templates.map(t => `<option value="${t.key}">${t.key} (${t.size_mb} MB)</option>`).join('');
     el.innerHTML = templates.length
       ? templates.map(t => `
-          <div style="display:flex;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--border)">
-            <span style="font-size:1.2rem">🗄</span>
-            <span style="flex:1;font-size:.85rem">${t.key}</span>
-            <span style="font-size:.75rem;color:var(--text-muted)">${t.size_mb} MB · ${new Date(t.last_modified).toLocaleDateString()}</span>
-            <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${t.key}')">✕</button>
-          </div>`).join('')
+        <div style="display:flex;align-items:center;gap:1rem;padding:.6rem 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:1.1rem">🗄</span>
+          <span style="flex:1;font-size:.85rem">${t.key}</span>
+          <span style="font-size:.75rem;color:var(--text-muted)">${t.size_mb} MB · ${new Date(t.last_modified).toLocaleDateString()}</span>
+          <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${t.key}')">✕</button>
+        </div>`).join('')
       : '<div style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1rem">No templates uploaded yet</div>';
   } catch (e) {
     el.innerHTML = `<div style="color:var(--text-muted);font-size:.85rem">Could not load templates: ${e.message}</div>`;
   }
 }
 
-function openCreate() { document.getElementById('create-modal').classList.add('active'); }
-function closeCreate() { document.getElementById('create-modal').classList.remove('active'); }
+async function uploadTemplate(input) {
+  if (!input.files.length) return;
+  const file = input.files[0];
+  const key  = prompt('Upload as (path/name in S3):', `v18/${file.name}`);
+  if (!key) return;
+  toast('Uploading... this may take a moment ⏳');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const r = await fetch(`/api/templates/${key}`, {
+      method: 'POST', headers: { 'X-API-Key': apiKey() }, body: form
+    });
+    if (!r.ok) throw new Error((await r.json()).detail);
+    toast(`✅ Uploaded as ${key}`);
+    loadTemplates();
+  } catch (e) { toast(e.message, 'error'); }
+  input.value = '';
+}
+
+async function deleteTemplate(key) {
+  if (!confirm(`Delete template "${key}"?`)) return;
+  try {
+    await api('DELETE', `/templates/${key}`);
+    toast(`Template "${key}" deleted.`);
+    loadTemplates();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Create ─────────────────────────────────────────────────
+
+function openCreate() {
+  document.getElementById('repos-container').innerHTML = '';
+  document.getElementById('create-modal').classList.add('active');
+}
+function closeCreate() { closeModal('create-modal'); }
 
 async function createInstance() {
   const btn = document.getElementById('btn-create');
   btn.innerHTML = '<span class="spinner"></span> Creating...'; btn.disabled = true;
   try {
     const overrides = {};
-    const workers = document.getElementById('f-workers').value;
+    const workers   = document.getElementById('f-workers').value;
     const adminpass = document.getElementById('f-adminpass').value;
-    if (workers) overrides.workers = parseInt(workers);
+    if (workers)   overrides.workers      = parseInt(workers);
     if (adminpass) overrides.admin_passwd = adminpass;
 
     const body = {
-      name: document.getElementById('f-name').value.trim(),
-      domain: document.getElementById('f-domain').value.trim(),
+      name:         document.getElementById('f-name').value.trim(),
+      domain:       document.getElementById('f-domain').value.trim(),
       odoo_version: document.getElementById('f-version').value,
-      db_password: document.getElementById('f-dbpass').value || 'odoo',
-      db_template: document.getElementById('f-template').value || undefined,
-      addons_repo: document.getElementById('f-addons').value.trim() || undefined,
-      image: document.getElementById('f-image').value.trim() || undefined,
+      db_password:  document.getElementById('f-dbpass').value || 'odoo',
+      db_template:  document.getElementById('f-template').value || null,
+      image:        document.getElementById('f-image').value.trim() || null,
+      addons_repos: getRepos('repos-container'),
       odoo_conf_overrides: overrides,
     };
     if (!body.name || !body.domain) throw new Error('Name and domain are required');
@@ -378,14 +536,41 @@ async function createInstance() {
   }
 }
 
-async function deleteInstance(name) {
-  if (!confirm(`Delete instance "${name}"? This removes all K8s resources.`)) return;
+// ── Delete (protected aware) ───────────────────────────────
+
+function askDelete(name, isProtected) {
+  if (isProtected) {
+    toast(`Instance "${name}" is protected. Unlock it (🔓) before deleting.`, 'error');
+    return;
+  }
+  pendingDeleteName = name;
+  document.getElementById('delete-name-label').textContent = name;
+  document.getElementById('delete-confirm-input').value = '';
+  document.getElementById('delete-modal').classList.add('active');
+}
+
+async function confirmDelete() {
+  const typed = document.getElementById('delete-confirm-input').value.trim();
+  if (typed !== pendingDeleteName) { toast('Name does not match', 'error'); return; }
   try {
-    await api('DELETE', `/instances/${name}?domain=${name}.aeisoftware.com`);
-    toast(`Instance "${name}" deleted.`);
+    await api('DELETE', `/instances/${pendingDeleteName}?domain=${pendingDeleteName}.aeisoftware.com`);
+    toast(`Instance "${pendingDeleteName}" deleted.`);
+    closeModal('delete-modal');
     loadInstances();
   } catch (e) { toast(e.message, 'error'); }
 }
+
+// ── Protect toggle ─────────────────────────────────────────
+
+async function toggleProtect(name, protect) {
+  try {
+    await api('PATCH', `/instances/${name}/protect?protect=${protect}`);
+    toast(protect ? `🔒 "${name}" is now protected.` : `🔓 "${name}" unprotected.`);
+    loadInstances();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Restart ────────────────────────────────────────────────
 
 async function restartInstance(name) {
   try {
@@ -395,63 +580,117 @@ async function restartInstance(name) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// ── Logs ───────────────────────────────────────────────────
+
+let currentLogsInstance = null;
 async function openLogs(name) {
+  currentLogsInstance = name;
   document.getElementById('logs-title').textContent = name;
   document.getElementById('log-content').textContent = 'Loading...';
   document.getElementById('logs-modal').classList.add('active');
+  await refreshLogs();
+}
+async function refreshLogs() {
+  if (!currentLogsInstance) return;
   try {
-    const { logs } = await api('GET', `/instances/${name}/logs?lines=80`);
-    document.getElementById('log-content').textContent = logs || '(no logs)';
+    const { logs } = await api('GET', `/instances/${currentLogsInstance}/logs?lines=100`);
+    const el = document.getElementById('log-content');
+    el.textContent = logs || '(no logs)';
+    el.scrollTop = el.scrollHeight;
   } catch (e) {
     document.getElementById('log-content').textContent = `Error: ${e.message}`;
   }
 }
 
-function openConfig(name, addonsRepo) {
-  currentConfigInstance = name;
+// ── Config modal ───────────────────────────────────────────
+
+async function openConfig(name, repos) {
+  currentInstance = name;
   document.getElementById('config-title').textContent = name;
-  document.getElementById('cfg-addons').value = addonsRepo;
+
+  // Reset tabs
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('#config-modal .tab').classList.add('active');
+  document.getElementById('tab-conf').classList.add('active');
+
   document.getElementById('config-modal').classList.add('active');
-}
 
-async function saveConfig() {
-  const btn = document.getElementById('btn-config-save');
-  btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  // Load raw odoo.conf
   try {
-    const overrides = {};
-    const workers = document.getElementById('cfg-workers').value;
-    const cron = document.getElementById('cfg-cron').value;
-    if (workers) overrides.workers = workers;
-    if (cron) overrides.max_cron_threads = cron;
-    const addons = document.getElementById('cfg-addons').value.trim();
-    await api('PATCH', `/instances/${currentConfigInstance}/config`, {
-      odoo_conf_overrides: overrides,
-      addons_repo: addons || undefined,
-    });
-    await api('POST', `/instances/${currentConfigInstance}/restart`);
-    toast('Config saved and instance restarting.');
-    document.getElementById('config-modal').classList.remove('active');
-    setTimeout(loadInstances, 3000);
-  } catch (e) { toast(e.message, 'error'); } finally {
-    btn.innerHTML = 'Save & Restart'; btn.disabled = false;
+    const { odoo_conf } = await api('GET', `/instances/${name}/config`);
+    document.getElementById('cfg-odoo-conf').value = odoo_conf;
+  } catch (e) {
+    document.getElementById('cfg-odoo-conf').value = `# Error loading config: ${e.message}`;
   }
+
+  // Pre-populate repos tab
+  const rContainer = document.getElementById('cfg-repos-container');
+  rContainer.innerHTML = '';
+  (repos || []).forEach(r => repoRow('cfg-repos-container', r.url || '', r.branch || ''));
 }
 
-async function deleteTemplate(key) {
-  if (!confirm(`Delete template "${key}"?`)) return;
+async function saveRawConf() {
+  const conf = document.getElementById('cfg-odoo-conf').value;
   try {
-    await api('DELETE', `/templates/${key}`);
-    toast(`Template "${key}" deleted.`);
-    loadTemplates();
+    await apiRaw('PUT', `/instances/${currentInstance}/config`, conf, 'text/plain');
+    await api('POST', `/instances/${currentInstance}/restart`);
+    toast('✅ Config saved. Instance restarting...');
+    setTimeout(loadInstances, 3000);
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// Check connectivity
+async function saveRepos() {
+  const repos = getRepos('cfg-repos-container');
+  try {
+    // We update the deployment annotation + restart via PATCH
+    const { odoo_conf } = await api('GET', `/instances/${currentInstance}/config`);
+    // Trigger re-provision is complex — for now save repos annotation and restart
+    await api('PATCH', `/instances/${currentInstance}/config`, { addons_repos: repos });
+    await api('POST', `/instances/${currentInstance}/restart`);
+    toast('✅ Repos saved. Instance restarting — init containers will sync on next start.');
+    setTimeout(loadInstances, 3000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadAddonUsage() {
+  const el = document.getElementById('usage-list');
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem">Loading disk usage...</div>';
+  try {
+    const { addons } = await api('GET', `/instances/${currentInstance}/addons`);
+    if (!addons.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem;padding:1rem 0">No addons found or pod not running.</div>';
+      return;
+    }
+    // Parse sizes for bar widths
+    const parseMB = s => {
+      const n = parseFloat(s); if (isNaN(n)) return 0;
+      if (s.includes('G')) return n * 1024;
+      if (s.includes('M')) return n;
+      if (s.includes('K')) return n / 1024;
+      return n;
+    };
+    const maxMB = Math.max(...addons.map(a => parseMB(a.size)));
+    el.innerHTML = addons.map(a => {
+      const pct = maxMB ? Math.round(parseMB(a.size) / maxMB * 100) : 0;
+      return `<div class="usage-row">
+        <span style="font-size:.8rem;min-width:50px;color:var(--accent)">${a.size}</span>
+        <div class="usage-bar"><div class="usage-bar-fill" style="width:${pct}%"></div></div>
+        <span style="font-size:.82rem;flex:1">${a.name}</span>
+        <span style="font-size:.72rem;color:var(--text-muted)">${a.path}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:.85rem">${e.message}</div>`;
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────
+
 fetch('/health').then(r => r.json())
-  .then(() => document.getElementById('cluster-info').textContent = 'K3s connected')
+  .then(() => document.getElementById('cluster-info').textContent = 'K3s connected ✓')
   .catch(() => document.getElementById('cluster-info').textContent = '⚠ Connection error');
 
-// Auto-load if API key exists
 document.getElementById('api-key').addEventListener('keydown', e => {
   if (e.key === 'Enter') refreshAll();
 });
@@ -459,6 +698,10 @@ const savedKey = localStorage.getItem('portal_api_key') || '';
 if (savedKey) { document.getElementById('api-key').value = savedKey; refreshAll(); }
 document.getElementById('api-key').addEventListener('blur', () => {
   localStorage.setItem('portal_api_key', apiKey());
+});
+// Allow Enter to confirm delete
+document.getElementById('delete-confirm-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmDelete();
 });
 </script>
 </body>

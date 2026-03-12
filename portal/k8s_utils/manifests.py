@@ -116,8 +116,9 @@ def build_deployment(
     version: str,
     image: str | None,
     db_template: str | None,
-    addons_repo: str | None,
+    addons_repos: list,          # list of AddonRepo objects or dicts {url, branch}
 ) -> dict:
+    import json
     odoo_image = image or f"odoo:{version}"
     init_containers = []
 
@@ -151,24 +152,42 @@ fi
             ],
         })
 
-    # initContainer 2: sync addons from git repo
-    if addons_repo:
+    # initContainer 2: sync addons — one directory per repo
+    # Each repo clones into /mnt/extra-addons/<repo-name>/
+    if addons_repos:
+        clone_cmds = []
+        for repo in addons_repos:
+            # Support both AddonRepo objects and plain dicts
+            url = repo.url if hasattr(repo, 'url') else repo['url']
+            branch = (repo.branch if hasattr(repo, 'branch') else repo.get('branch')) or ""
+            # Derive a short directory name from the repo URL
+            repo_name = url.rstrip("/").split("/")[-1].removesuffix(".git")
+            dest = f"/mnt/extra-addons/{repo_name}"
+            branch_flag = f"--branch {branch} " if branch else ""
+            clone_cmds.append(f"""
+if [ -d {dest}/.git ]; then
+  echo "[init] Pulling {repo_name}..."
+  cd {dest} && git pull --ff-only 2>&1 || git fetch --all && git reset --hard origin/HEAD
+else
+  echo "[init] Cloning {repo_name} ({url})..."
+  git clone --depth=1 {branch_flag}{url} {dest}
+fi
+echo "[init] {repo_name} ready."
+""".strip())
+
         init_containers.append({
             "name": "sync-addons",
             "image": "alpine/git:latest",
-            "command": ["sh", "-c", f"""
-if [ -d /mnt/extra-addons/.git ]; then
-  echo "[init] Pulling latest addons..."
-  cd /mnt/extra-addons && git pull --ff-only
-else
-  echo "[init] Cloning addons from {addons_repo}..."
-  git clone --depth=1 {addons_repo} /tmp/addons_clone
-  cp -r /tmp/addons_clone/. /mnt/extra-addons/
-fi
-echo "[init] Addons ready."
-""".strip()],
+            "command": ["sh", "-c", "\n".join(clone_cmds)],
             "volumeMounts": [{"name": "odoo-addons", "mountPath": "/mnt/extra-addons"}],
         })
+
+    # Build repos annotation for display in the portal
+    repos_annotation = json.dumps([
+        {"url": (r.url if hasattr(r, 'url') else r['url']),
+         "branch": (r.branch if hasattr(r, 'branch') else r.get('branch'))}
+        for r in addons_repos
+    ]) if addons_repos else ""
 
     return {
         "apiVersion": "apps/v1", "kind": "Deployment",
@@ -176,14 +195,15 @@ echo "[init] Addons ready."
             "name": f"{name}-odoo", "namespace": f"odoo-{name}",
             "labels": {"app": "odoo", "client": name, "odoo-version": version},
             "annotations": {
-                "saas/addons-repo": addons_repo or "",
+                "saas/addons-repos": repos_annotation,
                 "saas/db-template": db_template or "",
                 "saas/image": odoo_image,
+                "saas/protected": "false",
             },
         },
         "spec": {
             "replicas": 1,
-            "strategy": {"type": "RollingUpdate"},
+            "strategy": {"type": "Recreate"},
             "selector": {"matchLabels": {"app": "odoo", "client": name}},
             "template": {
                 "metadata": {"labels": {"app": "odoo", "client": name, "odoo-version": version}},
@@ -199,8 +219,8 @@ echo "[init] Addons ready."
                         ],
                         "envFrom": [{"secretRef": {"name": f"{name}-db-secret"}}],
                         "volumeMounts": [
-                            {"name": "odoo-conf", "mountPath": "/etc/odoo"},
-                            {"name": "odoo-data", "mountPath": "/var/lib/odoo"},
+                            {"name": "odoo-conf",   "mountPath": "/etc/odoo"},
+                            {"name": "odoo-data",   "mountPath": "/var/lib/odoo"},
                             {"name": "odoo-addons", "mountPath": "/mnt/extra-addons"},
                         ],
                         "readinessProbe": {
@@ -221,6 +241,7 @@ echo "[init] Addons ready."
             },
         },
     }
+
 
 
 def build_service(name: str) -> dict:

@@ -53,7 +53,7 @@ metadata:
   namespace: portal-system
 type: Opaque
 stringData:
-  PORTAL_API_KEY: "changeme-replace-with-strong-key"
+  PORTAL_API_KEY: "aei-saas-8700533d55e0ac70ed1385bc"
   PATRONI_HOST: "patroni-db.kube-system.svc.cluster.local"
   PATRONI_PORT: "5432"
   PATRONI_USER: "odoo"
