@@ -257,9 +257,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
   <div class="modal" style="max-width:860px">
     <h2>⚙️ Config — <span id="config-title"></span></h2>
     <div class="tab-row">
-      <div class="tab active" onclick="switchTab('tab-conf')">odoo.conf</div>
-      <div class="tab" onclick="switchTab('tab-addons')">Addon Repos</div>
-      <div class="tab" onclick="switchTab('tab-usage', loadAddonUsage)">Disk Usage</div>
+      <div class="tab active" onclick="switchTab('tab-conf',null,this)">odoo.conf</div>
+      <div class="tab" onclick="switchTab('tab-addons',null,this)">Addon Repos</div>
+      <div class="tab" onclick="switchTab('tab-usage',loadAddonUsage,this)">Disk Usage</div>
     </div>
 
     <!-- Tab: raw odoo.conf editor -->
@@ -319,13 +319,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 <script>
 let currentInstance = null;
 let pendingDeleteName = null;
+const instanceCache = {}; // name → instance data
 
 const apiKey = () => document.getElementById('api-key').value;
 const headers = () => ({ 'Content-Type': 'application/json', 'X-API-Key': apiKey() });
 
 async function api(method, path, body) {
   const r = await fetch(`/api${path}`, {
-    method, headers: headers(),
+    method,
+    headers: headers(),
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
   if (!r.ok && r.status !== 204) {
@@ -356,11 +358,11 @@ function toast(msg, type = 'success') {
 
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-function switchTab(tabId, cb) {
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+function switchTab(tabId, cb, tabEl) {
+  document.querySelectorAll('#config-modal .tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#config-modal .tab').forEach(t => t.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
-  event.target.classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
   if (cb) cb();
 }
 
@@ -414,14 +416,16 @@ async function loadInstances() {
       el.innerHTML = '<div class="empty-state"><div class="icon">🚀</div><div>No instances yet. Create your first one!</div></div>';
       return;
     }
+    // Store instance data for use by openConfig without inline JSON
+    instances.forEach(i => { instanceCache[i.name] = i; });
     el.innerHTML = instances.map(i => {
       const repos  = i.addons_repos || [];
       const reposHtml = repos.length
         ? repos.map(r => `<span class="repo-chip">📦 ${r.url.split('/').pop().replace('.git','')}</span>`).join('')
         : '<span style="opacity:.5">No addons</span>';
       const lockBtn = i.protected
-        ? `<button class="btn btn-warn btn-sm" title="Protected — click to unlock" onclick="toggleProtect('${i.name}', false)">🔒</button>`
-        : `<button class="btn btn-ghost btn-sm" title="Click to protect from deletion" onclick="toggleProtect('${i.name}', true)">🔓</button>`;
+        ? `<button class="btn btn-warn btn-sm" title="Protected — click to unlock" onclick="toggleProtect('${i.name}',false)">🔒</button>`
+        : `<button class="btn btn-ghost btn-sm" title="Click to protect from deletion" onclick="toggleProtect('${i.name}',true)">🔓</button>`;
       return `
       <div class="instance-row${i.protected ? ' protected' : ''}">
         <div style="font-size:1.8rem">🐙</div>
@@ -433,10 +437,10 @@ async function loadInstances() {
         <div>${statusBadge(i.pod_status, i.restarts)}</div>
         <div class="actions">
           <button class="btn btn-ghost btn-sm" onclick="openLogs('${i.name}')">Logs</button>
-          <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}', ${JSON.stringify(i.addons_repos || [])})">Config</button>
+          <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}')">Config</button>
           <button class="btn btn-ghost btn-sm" title="Restart" onclick="restartInstance('${i.name}')">↺</button>
           ${lockBtn}
-          <button class="btn btn-danger btn-sm" onclick="askDelete('${i.name}', ${i.protected})">✕</button>
+          <button class="btn btn-danger btn-sm" onclick="askDelete('${i.name}',${i.protected})">✕</button>
         </div>
       </div>`;
     }).join('');
@@ -604,13 +608,13 @@ async function refreshLogs() {
 
 // ── Config modal ───────────────────────────────────────────
 
-async function openConfig(name, repos) {
+async function openConfig(name) {
   currentInstance = name;
   document.getElementById('config-title').textContent = name;
 
-  // Reset tabs
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  // Reset tabs to first
+  document.querySelectorAll('#config-modal .tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#config-modal .tab').forEach(t => t.classList.remove('active'));
   document.querySelector('#config-modal .tab').classList.add('active');
   document.getElementById('tab-conf').classList.add('active');
 
@@ -624,10 +628,11 @@ async function openConfig(name, repos) {
     document.getElementById('cfg-odoo-conf').value = `# Error loading config: ${e.message}`;
   }
 
-  // Pre-populate repos tab
+  // Pre-populate repos tab from cached instance data
+  const repos = (instanceCache[name] || {}).addons_repos || [];
   const rContainer = document.getElementById('cfg-repos-container');
   rContainer.innerHTML = '';
-  (repos || []).forEach(r => repoRow('cfg-repos-container', r.url || '', r.branch || ''));
+  repos.forEach(r => repoRow('cfg-repos-container', r.url || '', r.branch || ''));
 }
 
 async function saveRawConf() {

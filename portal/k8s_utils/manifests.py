@@ -57,8 +57,10 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> di
           PostgreSQL credentials always come from PATRONI_PASS env var.
     """
     defaults = {
-        # workers=0 = threaded mode — avoids HAProxy idle-connection drops on long-lived workers
-        "workers": 0, "max_cron_threads": 1, "gevent_port": 8072,
+        # workers=0 = single-threaded, workers≥1 = pre-fork multiprocess.
+        # IMPORTANT: HAProxy must have timeout client/server ≥ 1h to avoid dropping
+        # idle Odoo worker connections during long operations (module install, cron).
+        "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
         "limit_memory_hard": 2684354560, "limit_memory_soft": 2147483648,
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
     }
