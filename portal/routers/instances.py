@@ -204,8 +204,35 @@ async def _remove_cloudflare(domain: str):
 
 @router.post("", status_code=201)
 async def create_instance(body: InstanceCreate):
+    from fastapi import HTTPException
     core, apps, net = _k8s()
     ns = f"odoo-{body.name}"
+
+    # ── Pre-flight: duplicate name check ────────────────────────────────────────
+    existing_ns = core.list_namespace(label_selector="managed-by=saas-portal")
+    existing_names = [n.metadata.name.removeprefix("odoo-") for n in existing_ns.items]
+    if body.name in existing_names:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Instance '{body.name}' already exists. Please choose a different name."
+        )
+
+    # ── Pre-flight: duplicate domain check ──────────────────────────────────────
+    for existing_name in existing_names:
+        try:
+            ingress = net.read_namespaced_ingress(
+                f"{existing_name}-odoo-ingress", f"odoo-{existing_name}"
+            )
+            for rule in (ingress.spec.rules or []):
+                if rule.host == body.domain:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Domain '{body.domain}' is already in use by instance '{existing_name}'. Please choose a different domain."
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # ignore read errors for individual instances
 
     _safe_create(core.create_namespace, build_namespace(body.name))
     _safe_create(core.create_namespaced_secret, ns,

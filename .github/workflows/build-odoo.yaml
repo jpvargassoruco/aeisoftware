@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'docker/Dockerfile.*'
-      - '.github/workflows/build-odoo.yaml'
 
 jobs:
   build:
