@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: odoo-odoo18
-  labels:
-    app: odoo
-    client: odoo18
-    odoo-version: "18"
