@@ -56,10 +56,10 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
                     addons_repos=None) -> dict:
     """
     Build odoo.conf ConfigMap.
-    db_pass = Odoo master password (admin_passwd from the portal form).
-    Odoo connects as the shared admin PG user to its own named database.
-    db_filter restricts Odoo to only see its own database.
-    list_db = True allows database manager (protected by admin_passwd).
+    db_filter = {name} allows clients to see all databases containing
+    the instance name (e.g. test19, test19-backup, test19-sales).
+    No db_name set — Odoo uses db_filter to discover databases.
+    No admin_passwd set — client sets it via database manager on first use.
     """
     defaults = {
         "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
@@ -67,8 +67,6 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
     }
     cfg = {**defaults, **overrides}
-    # admin_passwd: prefer explicit override, then form's db_password, then fallback
-    admin_pass = overrides.get('admin_passwd', db_pass if db_pass and db_pass != 'odoo' else 'admin')
     # Build addons_path: base path + one entry per cloned repo subdirectory
     addons_paths = ["/mnt/extra-addons"]
     if addons_repos:
@@ -83,9 +81,7 @@ db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
 db_user = {PATRONI_USER}
 db_password = {PATRONI_PASS}
-db_name = False
-db_filter = ^{name}$
-admin_passwd = {admin_pass}
+db_filter = {name}
 list_db = True
 addons_path = {addons_path_str}
 data_dir = /var/lib/odoo
@@ -104,6 +100,7 @@ limit_time_real = {cfg['limit_time_real']}
         "metadata": {"name": f"{name}-odoo-conf", "namespace": f"odoo-{name}"},
         "data": {"odoo.conf": conf},
     }
+
 
 
 
