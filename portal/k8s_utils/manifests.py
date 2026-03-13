@@ -162,49 +162,36 @@ fi
         db_setup_script += f"""
 # Only restore template into a freshly created (empty) database
 if [ "$DB_IS_NEW" = "1" ]; then
-  echo "[init] Installing tools for S3 download..."
+  echo "[init] Installing tools for template restore..."
   apk add --no-cache aws-cli unzip 2>/dev/null || true
   echo "[init] Downloading template {db_template} from S3..."
-  aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.file \\
+  aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.zip \\
     --endpoint-url {S3_ENDPOINT} --no-verify-ssl 2>&1
 
-  echo "[init] Detecting template format..."
-  case "{db_template}" in
-    *.zip)
-      # ── Odoo ZIP backup format (dump.sql + filestore/ + manifest.json) ──────
-      echo "[init] Odoo ZIP format detected — extracting..."
-      unzip -q /tmp/template.file -d /tmp/odoo_backup/
-      echo "[init] Restoring database from dump.sql..."
-      # Strip PG17+ SET params unknown to older psql (e.g. transaction_timeout)
-      sed -i '/^SET transaction_timeout/d' /tmp/odoo_backup/dump.sql 2>/dev/null || true
-      PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-        -d {name} -v ON_ERROR_STOP=0 -f /tmp/odoo_backup/dump.sql 2>&1 || true
-      if [ -d /tmp/odoo_backup/filestore ]; then
-        echo "[init] Restoring filestore to /var/lib/odoo/filestore/{name}/..."
-        mkdir -p /var/lib/odoo/filestore/{name}
-        cp -r /tmp/odoo_backup/filestore/. /var/lib/odoo/filestore/{name}/
-        chown -R 101:101 /var/lib/odoo/filestore/{name}
-        echo "[init] Filestore restored."
-      fi
-      rm -rf /tmp/odoo_backup /tmp/template.file
-      ;;
-    *.sql)
-      # ── Plain SQL dump (pg_dump default format) ──────────────────────────────
-      echo "[init] Plain SQL format detected — restoring with psql..."
-      # Strip PG17+ SET params unknown to older psql (e.g. transaction_timeout)
-      sed -i '/^SET transaction_timeout/d' /tmp/template.file 2>/dev/null || true
-      PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-        -d {name} -v ON_ERROR_STOP=0 -f /tmp/template.file 2>&1 || true
-      rm -f /tmp/template.file
-      ;;
-    *)
-      # ── pg_dump custom binary format (-Fc) ───────────────────────────────────
-      echo "[init] Binary dump format detected — restoring with pg_restore..."
-      PGPASSWORD={PATRONI_PASS} pg_restore -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-        -d {name} --no-owner --no-acl /tmp/template.file 2>&1 || true
-      rm -f /tmp/template.file
-      ;;
-  esac
+  echo "[init] Extracting Odoo ZIP backup..."
+  unzip -q /tmp/template.zip -d /tmp/odoo_backup/
+  if [ ! -f /tmp/odoo_backup/dump.sql ] || [ ! -f /tmp/odoo_backup/manifest.json ]; then
+    echo "[init] ERROR: Invalid Odoo backup — missing dump.sql or manifest.json. Aborting restore."
+    exit 1
+  fi
+
+  echo "[init] Restoring database from dump.sql..."
+  # Strip PG17+ SET params that may be unrecognized (e.g. transaction_timeout)
+  sed -i '/^SET transaction_timeout/d' /tmp/odoo_backup/dump.sql 2>/dev/null || true
+  PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
+    -d {name} -v ON_ERROR_STOP=0 -f /tmp/odoo_backup/dump.sql 2>&1 || true
+
+  if [ -d /tmp/odoo_backup/filestore ]; then
+    echo "[init] Restoring filestore to /var/lib/odoo/filestore/{name}/..."
+    mkdir -p /var/lib/odoo/filestore/{name}
+    cp -r /tmp/odoo_backup/filestore/. /var/lib/odoo/filestore/{name}/
+    chown -R 101:101 /var/lib/odoo/filestore/{name}
+    echo "[init] Filestore restored."
+  else
+    echo "[init] No filestore directory in backup — skipping filestore restore."
+  fi
+
+  rm -rf /tmp/odoo_backup /tmp/template.zip
   echo "[init] Template restore complete."
 else
   echo "[init] Database already existed — skipping template restore."
