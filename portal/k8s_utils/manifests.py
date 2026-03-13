@@ -175,8 +175,10 @@ if [ "$DB_IS_NEW" = "1" ]; then
       echo "[init] Odoo ZIP format detected — extracting..."
       unzip -q /tmp/template.file -d /tmp/odoo_backup/
       echo "[init] Restoring database from dump.sql..."
+      # Strip PG17+ SET params unknown to older psql (e.g. transaction_timeout)
+      sed -i '/^SET transaction_timeout/d' /tmp/odoo_backup/dump.sql 2>/dev/null || true
       PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-        -d {name} -f /tmp/odoo_backup/dump.sql 2>&1 || true
+        -d {name} -v ON_ERROR_STOP=0 -f /tmp/odoo_backup/dump.sql 2>&1 || true
       if [ -d /tmp/odoo_backup/filestore ]; then
         echo "[init] Restoring filestore to /var/lib/odoo/filestore/{name}/..."
         mkdir -p /var/lib/odoo/filestore/{name}
@@ -189,8 +191,10 @@ if [ "$DB_IS_NEW" = "1" ]; then
     *.sql)
       # ── Plain SQL dump (pg_dump default format) ──────────────────────────────
       echo "[init] Plain SQL format detected — restoring with psql..."
+      # Strip PG17+ SET params unknown to older psql (e.g. transaction_timeout)
+      sed -i '/^SET transaction_timeout/d' /tmp/template.file 2>/dev/null || true
       PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-        -d {name} -f /tmp/template.file 2>&1 || true
+        -d {name} -v ON_ERROR_STOP=0 -f /tmp/template.file 2>&1 || true
       rm -f /tmp/template.file
       ;;
     *)
@@ -215,7 +219,7 @@ fi
 
     init_containers.append({
         "name": "setup-db",
-        "image": "postgres:16-alpine",
+        "image": "postgres:17-alpine",
         "command": ["sh", "-c", db_setup_script],
         "env": [
             {"name": "AWS_ACCESS_KEY_ID",     "value": S3_ACCESS_KEY},
