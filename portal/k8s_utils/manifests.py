@@ -138,39 +138,48 @@ def build_deployment(
     init_containers = []
 
     # ── initContainer: setup-db ──────────────────────────────────────────────────
-    # Creates a dedicated database for this instance (owned by the admin odoo user).
-    # Odoo connects as the admin user but to its own named database.
-    # db_filter in odoo.conf ensures Odoo only sees its own database.
+    # Creates a dedicated database for this instance. Uses explicit createdb so
+    # that the DB is guaranteed to exist before pg_restore is called.
     db_setup_script = f"""#!/bin/sh
-echo "[init] Checking database {name}..."
+set -e
+echo "[init] Checking if database {name} exists..."
 
-# Create database if it doesn't exist (truly idempotent — no error if it exists)
-PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -c "
-  SELECT 'CREATE DATABASE \\"{name}\\" OWNER \\"{PATRONI_USER}\\"'
-  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{name}')
-\\gexec
-" 2>&1 && echo "[init] Database {name} ready." || echo "[init] DB check completed (may already exist)."
+DB_EXISTS=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -tAc \
+  "SELECT 1 FROM pg_database WHERE datname='{name}'" 2>/dev/null)
+
+if [ "$DB_EXISTS" = "1" ]; then
+  echo "[init] Database {name} already exists, skipping create."
+  DB_IS_NEW=0
+else
+  echo "[init] Creating database {name}..."
+  PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} "{name}" && \
+    echo "[init] Database {name} created." || {{ echo "[init] ERROR: createdb failed"; exit 1; }}
+  DB_IS_NEW=1
+fi
 """
 
     if db_template:
         db_setup_script += f"""
-apk add --no-cache aws-cli 2>/dev/null || true
-# Only restore template if the database was just created (empty)
-TABLE_COUNT=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d {name} -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ')
-if [ "$TABLE_COUNT" = "0" ] || [ -z "$TABLE_COUNT" ]; then
-  echo "[init] Restoring template {db_template}..."
+# Only restore template into a freshly created (empty) database
+if [ "$DB_IS_NEW" = "1" ]; then
+  echo "[init] Installing aws-cli for S3 download..."
+  apk add --no-cache aws-cli 2>/dev/null || true
+  echo "[init] Downloading template {db_template} from S3..."
   aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.dump \\
     --endpoint-url {S3_ENDPOINT} --no-verify-ssl 2>&1
+  echo "[init] Restoring template into {name}..."
   PGPASSWORD={PATRONI_PASS} pg_restore -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-    -d {name} --no-owner /tmp/template.dump || echo "[init] Template restore finished (some errors are normal)."
-  echo "[init] Template restored."
+    -d {name} --no-owner --no-acl /tmp/template.dump 2>&1 || true
+  echo "[init] Template restore complete."
+  rm -f /tmp/template.dump
 else
-  echo "[init] Database already has $TABLE_COUNT tables, skipping template restore."
+  echo "[init] Database already existed — skipping template restore."
 fi
 """
 
     db_setup_script += """echo "[init] Database setup complete."
 """
+
 
 
     init_containers.append({
