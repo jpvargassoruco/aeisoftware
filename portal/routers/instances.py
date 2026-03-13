@@ -49,7 +49,14 @@ def _k8s():
 
 
 async def _drop_pg_resources(name: str):
-    """Drop the per-instance PostgreSQL database and role on instance deletion."""
+    """Drop ALL PostgreSQL databases belonging to this instance on deletion.
+
+    The dbfilter for instance 'saas' is the regex 'saas', which matches
+    databases named 'saas', 'saas2', 'saas3', etc. — all created via the
+    Odoo database manager. We drop every database whose name starts with
+    the instance name to avoid leaving garbage in Patroni.
+    Also drops the per-instance Postgres role if it exists.
+    """
     import psycopg2
     from psycopg2 import sql
     from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
@@ -61,20 +68,34 @@ async def _drop_pg_resources(name: str):
         )
         conn.autocommit = True
         cur = conn.cursor()
-        # Terminate any active connections to the database first
+
+        # Find all databases whose name starts with the instance slug
         cur.execute(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-            "WHERE datname = %s AND pid <> pg_backend_pid()",
-            (name,)
+            "SELECT datname FROM pg_database "
+            "WHERE datistemplate = false AND datname LIKE %s",
+            (name + "%",)
         )
-        # Drop database and role (idempotent)
-        cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(name)))
+        databases = [row[0] for row in cur.fetchall()]
+        print(f"[portal] Databases to drop for instance '{name}': {databases}")
+
+        for dbname in databases:
+            # Terminate active connections before dropping
+            cur.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (dbname,)
+            )
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
+            print(f"[portal] Dropped database: {dbname}")
+
+        # Drop the per-instance role (idempotent)
         cur.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(name)))
         conn.close()
-        print(f"[portal] Dropped PostgreSQL database and role: {name}")
+        print(f"[portal] Cleaned up all PostgreSQL resources for instance: {name}")
     except Exception as e:
         # Log but don't fail the delete — K8s namespace is already being removed
         print(f"[portal] Warning: could not drop PostgreSQL resources for {name}: {e}")
+
 
 
 def _safe_create(fn, *args, **kwargs):
