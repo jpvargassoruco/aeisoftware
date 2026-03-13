@@ -55,9 +55,10 @@ def build_secret(name: str, db_pass: str) -> dict:
 def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> dict:
     """
     Build odoo.conf ConfigMap.
-    db_pass = Odoo master password (admin_passwd). Each instance connects as the
-    shared admin user (PATRONI_USER) but to its own dedicated database '{name}'.
+    db_pass = Odoo master password (admin_passwd from the portal form).
+    Odoo connects as the shared admin PG user to its own named database.
     db_filter restricts Odoo to only see its own database.
+    list_db = False prevents the database manager UI entirely.
     """
     defaults = {
         # workers=0 = single-threaded, workers≥1 = pre-fork multiprocess.
@@ -68,15 +69,17 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> di
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
     }
     cfg = {**defaults, **overrides}
-    admin_pass = overrides.get('admin_passwd', db_pass or 'admin')
+    # admin_passwd: prefer explicit override, then form's db_password, then fallback
+    admin_pass = overrides.get('admin_passwd', db_pass if db_pass and db_pass != 'odoo' else 'admin')
     conf = f"""[options]
 db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
 db_user = {PATRONI_USER}
 db_password = {PATRONI_PASS}
-db_name = {name}
-db_filter = {name}
+db_name = False
+db_filter = ^{name}$
 admin_passwd = {admin_pass}
+list_db = False
 addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
 data_dir = /var/lib/odoo
 workers = {cfg['workers']}

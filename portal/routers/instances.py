@@ -328,7 +328,7 @@ async def get_config(name: str):
 
 @router.patch("/{name}/config")
 async def update_config(name: str, body: InstancePatch):
-    core, _, _ = _k8s()
+    core, apps, _ = _k8s()
     ns = f"odoo-{name}"
     try:
         cm = core.read_namespaced_config_map(f"{name}-odoo-conf", ns)
@@ -344,7 +344,34 @@ async def update_config(name: str, body: InstancePatch):
         core.patch_namespaced_config_map(f"{name}-odoo-conf", ns, cm)
     except ApiException as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # Handle addons_repos update: save annotation + rebuild initContainers
+    if body.addons_repos is not None:
+        import json as _json
+        try:
+            dep = apps.read_namespaced_deployment(f"{name}-odoo", ns)
+            repos_json = _json.dumps([{"url": r.url, "branch": r.branch} for r in body.addons_repos])
+            if dep.metadata.annotations is None:
+                dep.metadata.annotations = {}
+            dep.metadata.annotations["saas/addons-repos"] = repos_json
+
+            # Rebuild the sync-addons initContainer from the new repos list
+            version = dep.metadata.labels.get("odoo-version", "18")
+            image = dep.metadata.annotations.get("saas/image")
+            db_template = dep.metadata.annotations.get("saas/db-template")
+            new_dep = build_deployment(name, version, image, db_template, body.addons_repos)
+            # Replace initContainers in the real deployment
+            dep.spec.template.spec.init_containers = new_dep["spec"]["template"]["spec"].get("initContainers", [])
+            # Trigger restart with timestamp annotation
+            import datetime
+            dep.spec.template.metadata.annotations = dep.spec.template.metadata.annotations or {}
+            dep.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"] = datetime.datetime.utcnow().isoformat()
+            apps.replace_namespaced_deployment(f"{name}-odoo", ns, dep)
+        except ApiException as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update addons: {e}")
+
     return {"status": "updated", "restart_required": True}
+
 
 
 @router.put("/{name}/config")
