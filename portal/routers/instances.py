@@ -190,7 +190,8 @@ async def create_instance(body: InstanceCreate):
     _safe_create(core.create_namespaced_secret, ns,
                  build_secret(body.name, body.db_password))
     _safe_create(core.create_namespaced_config_map, ns,
-                 build_configmap(body.name, body.domain, body.db_password, body.odoo_conf_overrides))
+                 build_configmap(body.name, body.domain, body.db_password,
+                                body.odoo_conf_overrides, body.addons_repos))
 
     for pvc in build_pvcs(body.name):
         _safe_create(core.create_namespaced_persistent_volume_claim, ns, pvc)
@@ -446,7 +447,7 @@ async def get_addon_usage(name: str):
     pod_name = pods.items[0].metadata.name
 
     exec_command = ["/bin/sh", "-c",
-        "du -sh /mnt/extra-addons/* 2>/dev/null | sort -rh || echo 'empty'"]
+        "du -h --max-depth=2 /mnt/extra-addons/ 2>/dev/null | sort -rh || echo 'empty'"]
     from kubernetes.stream import stream
     resp = stream(
         core.connect_get_namespaced_pod_exec,

@@ -52,18 +52,16 @@ def build_secret(name: str, db_pass: str) -> dict:
     }
 
 
-def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> dict:
+def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
+                    addons_repos=None) -> dict:
     """
     Build odoo.conf ConfigMap.
     db_pass = Odoo master password (admin_passwd from the portal form).
     Odoo connects as the shared admin PG user to its own named database.
     db_filter restricts Odoo to only see its own database.
-    list_db = False prevents the database manager UI entirely.
+    list_db = True allows database manager (protected by admin_passwd).
     """
     defaults = {
-        # workers=0 = single-threaded, workers≥1 = pre-fork multiprocess.
-        # IMPORTANT: HAProxy must have timeout client/server ≥ 1h to avoid dropping
-        # idle Odoo worker connections during long operations (module install, cron).
         "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
         "limit_memory_hard": 2684354560, "limit_memory_soft": 2147483648,
         "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
@@ -71,6 +69,15 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict) -> di
     cfg = {**defaults, **overrides}
     # admin_passwd: prefer explicit override, then form's db_password, then fallback
     admin_pass = overrides.get('admin_passwd', db_pass if db_pass and db_pass != 'odoo' else 'admin')
+    # Build addons_path: base path + one entry per cloned repo subdirectory
+    addons_paths = ["/mnt/extra-addons"]
+    if addons_repos:
+        for repo in addons_repos:
+            url = repo.url if hasattr(repo, 'url') else repo.get('url', '')
+            repo_name = url.rstrip('/').split('/')[-1].removesuffix('.git')
+            addons_paths.append(f"/mnt/extra-addons/{repo_name}")
+    addons_paths.append("/usr/lib/python3/dist-packages/odoo/addons")
+    addons_path_str = ",".join(addons_paths)
     conf = f"""[options]
 db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
@@ -79,8 +86,8 @@ db_password = {PATRONI_PASS}
 db_name = False
 db_filter = ^{name}$
 admin_passwd = {admin_pass}
-list_db = False
-addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
+list_db = True
+addons_path = {addons_path_str}
 data_dir = /var/lib/odoo
 workers = {cfg['workers']}
 max_cron_threads = {cfg['max_cron_threads']}
@@ -97,6 +104,7 @@ limit_time_real = {cfg['limit_time_real']}
         "metadata": {"name": f"{name}-odoo-conf", "namespace": f"odoo-{name}"},
         "data": {"odoo.conf": conf},
     }
+
 
 
 def build_pvcs(name: str) -> list:
@@ -134,20 +142,20 @@ def build_deployment(
     # Creates a dedicated database for this instance (owned by the admin odoo user).
     # Odoo connects as the admin user but to its own named database.
     # db_filter in odoo.conf ensures Odoo only sees its own database.
-    db_setup_script = f"""
+    db_setup_script = f"""#!/bin/sh
+set -e
 apk add --no-cache aws-cli 2>/dev/null || true
 
-# 1) Create database owned by admin user (idempotent)
+# Create database owned by admin user (idempotent)
 DB_EXISTS=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
   -tAc "SELECT 1 FROM pg_database WHERE datname='{name}'" 2>/dev/null | tr -d ' ')
 if [ "$DB_EXISTS" != "1" ]; then
   echo "[init] Creating database {name}..."
   PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -O {PATRONI_USER} {name}
-""".strip()
+"""  # no .strip() — keep trailing newline
 
     if db_template:
-        db_setup_script += f"""
-  echo "[init] Restoring template {db_template}..."
+        db_setup_script += f"""  echo "[init] Restoring template {db_template}..."
   aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.dump \\
     --endpoint-url {S3_ENDPOINT} --no-verify-ssl 2>&1
   PGPASSWORD={PATRONI_PASS} pg_restore -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
@@ -155,12 +163,11 @@ if [ "$DB_EXISTS" != "1" ]; then
   echo "[init] Template restored."
 """
 
-    db_setup_script += f"""
-else
-  echo "[init] Database {name} already exists, skipping creation."
+    db_setup_script += """else
+  echo "[init] Database already exists, skipping creation."
 fi
 echo "[init] Database setup complete."
-""".strip()
+"""
 
     init_containers.append({
         "name": "setup-db",
