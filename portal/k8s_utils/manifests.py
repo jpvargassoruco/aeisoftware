@@ -143,31 +143,36 @@ def build_deployment(
     # Odoo connects as the admin user but to its own named database.
     # db_filter in odoo.conf ensures Odoo only sees its own database.
     db_setup_script = f"""#!/bin/sh
-set -e
-apk add --no-cache aws-cli 2>/dev/null || true
+echo "[init] Checking database {name}..."
 
-# Create database owned by admin user (idempotent)
-DB_EXISTS=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-  -tAc "SELECT 1 FROM pg_database WHERE datname='{name}'" 2>/dev/null | tr -d ' ')
-if [ "$DB_EXISTS" != "1" ]; then
-  echo "[init] Creating database {name}..."
-  PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -O {PATRONI_USER} {name}
-"""  # no .strip() — keep trailing newline
+# Create database if it doesn't exist (truly idempotent — no error if it exists)
+PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -c "
+  SELECT 'CREATE DATABASE \\"{name}\\" OWNER \\"{PATRONI_USER}\\"'
+  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{name}')
+\\gexec
+" 2>&1 && echo "[init] Database {name} ready." || echo "[init] DB check completed (may already exist)."
+"""
 
     if db_template:
-        db_setup_script += f"""  echo "[init] Restoring template {db_template}..."
+        db_setup_script += f"""
+apk add --no-cache aws-cli 2>/dev/null || true
+# Only restore template if the database was just created (empty)
+TABLE_COUNT=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d {name} -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ')
+if [ "$TABLE_COUNT" = "0" ] || [ -z "$TABLE_COUNT" ]; then
+  echo "[init] Restoring template {db_template}..."
   aws s3 cp s3://{S3_BUCKET}/{db_template} /tmp/template.dump \\
     --endpoint-url {S3_ENDPOINT} --no-verify-ssl 2>&1
   PGPASSWORD={PATRONI_PASS} pg_restore -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
-    -d {name} --no-owner /tmp/template.dump || true
+    -d {name} --no-owner /tmp/template.dump || echo "[init] Template restore finished (some errors are normal)."
   echo "[init] Template restored."
+else
+  echo "[init] Database already has $TABLE_COUNT tables, skipping template restore."
+fi
 """
 
-    db_setup_script += """else
-  echo "[init] Database already exists, skipping creation."
-fi
-echo "[init] Database setup complete."
+    db_setup_script += """echo "[init] Database setup complete."
 """
+
 
     init_containers.append({
         "name": "setup-db",
