@@ -3,11 +3,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
-import httpx, os, re
+import httpx, os, re, asyncio, io
+import boto3
+from botocore.client import Config
 from k8s_utils.manifests import (
     build_namespace, build_secret, build_configmap,
     build_pvcs, build_deployment, build_service, build_ingress,
     SUPPORTED_VERSIONS, CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID, CF_TUNNEL_ID,
+    S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET,
 )
 
 router = APIRouter()
@@ -258,10 +261,103 @@ async def create_instance(body: InstanceCreate):
         cf_warning = str(cf_err)
         print(f"[cf] WARNING: could not configure Cloudflare for {body.domain}: {cf_err}")
 
+    # ── If a ZIP template is set, restore it via Odoo's native restore endpoint ─
+    if body.db_template:
+        admin_passwd = body.odoo_conf_overrides.get('admin_passwd', body.db_password or 'odoo')
+        asyncio.create_task(_restore_via_odoo(
+            name=body.name,
+            domain=body.domain,
+            db_template=body.db_template,
+            admin_passwd=admin_passwd,
+        ))
+
     return {"name": body.name, "domain": body.domain,
             "url": f"https://{body.domain}", "status": "provisioning",
             "cf_warning": cf_warning}
 
+
+async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_passwd: str):
+    """Background task: wait for Odoo to be healthy, then restore database via native endpoint.
+
+    Flow:
+    1. Poll GET /web/health on internal K8s service until Odoo responds (up to 10 min)
+    2. Download ZIP from Ceph S3
+    3. POST to /web/database/restore — Odoo creates+populates the database natively
+    4. Fix web.base.url via psql so assets/redirects point to the right domain
+    """
+    import psycopg2
+    from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
+
+    internal_url = f"http://{name}-odoo-service.odoo-{name}.svc.cluster.local:8069"
+    print(f"[restore] Starting background restore for {name} from {db_template}")
+
+    # 1. Wait for Odoo to be reachable (up to 10 min, poll every 15s)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as http:
+        for attempt in range(40):
+            try:
+                r = await http.get(f"{internal_url}/web/health")
+                if r.status_code == 200:
+                    print(f"[restore] Odoo {name} healthy after {attempt * 15}s")
+                    break
+                print(f"[restore] Health check {attempt+1}/40: HTTP {r.status_code}")
+            except Exception as e:
+                print(f"[restore] Health check {attempt+1}/40: {type(e).__name__}")
+            await asyncio.sleep(15)
+        else:
+            print(f"[restore] ERROR: Timeout waiting for Odoo {name} — restore aborted")
+            return
+
+    # 2. Download ZIP from S3
+    try:
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT,
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+            config=Config(signature_version="s3v4"),
+            verify=False,
+        )
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=db_template)
+        zip_bytes = obj['Body'].read()
+        print(f"[restore] Downloaded {db_template} ({len(zip_bytes) // 1024} KB)")
+    except Exception as e:
+        print(f"[restore] ERROR: Failed to download {db_template}: {e}")
+        return
+
+    # 3. POST to Odoo's native restore endpoint — handles DB creation + filestore
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=5.0)) as http:
+            r = await http.post(
+                f"{internal_url}/web/database/restore",
+                data={"master_pwd": admin_passwd, "name": name, "copy": "true"},
+                files={"backup_file": (f"{name}.zip", io.BytesIO(zip_bytes), "application/zip")},
+            )
+            print(f"[restore] Odoo restore response: HTTP {r.status_code} — {r.text[:200]}")
+            if r.status_code not in (200, 302):
+                print(f"[restore] WARNING: Unexpected restore status for {name}")
+    except Exception as e:
+        print(f"[restore] ERROR: Restore request failed: {e}")
+        return
+
+    # 4. Fix web.base.url so assets and redirects point to the correct domain
+    try:
+        await asyncio.sleep(5)  # brief pause for Odoo to activate the restored DB
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS, dbname=name
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE ir_config_parameter SET value=%s WHERE key IN (%s,%s)",
+            (f"https://{domain}", 'web.base.url', 'web.base.url.static')
+        )
+        print(f"[restore] Updated web.base.url to https://{domain} ({cur.rowcount} rows)")
+        conn.close()
+    except Exception as e:
+        print(f"[restore] WARNING: Could not fix web.base.url: {e}")
+
+    print(f"[restore] Restore complete for {name} — {domain} is ready")
 
 
 # ─── List ──────────────────────────────────────────────────────────────────────
