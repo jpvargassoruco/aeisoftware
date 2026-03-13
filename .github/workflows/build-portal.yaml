@@ -2,7 +2,7 @@ name: Build & Push SaaS Portal
 
 on:
   push:
-    branches: [k3s-saas]
+    branches: [main]
     paths:
       - 'portal/**'
       - '.github/workflows/build-portal.yaml'

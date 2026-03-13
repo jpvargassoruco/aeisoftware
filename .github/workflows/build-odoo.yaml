@@ -2,7 +2,7 @@ name: Build Custom Odoo Images
 
 on:
   push:
-    branches: [k3s-saas]
+    branches: [main]
     paths:
       - 'docker/Dockerfile.*'
       - '.github/workflows/build-odoo.yaml'
