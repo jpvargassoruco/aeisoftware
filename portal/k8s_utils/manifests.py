@@ -59,7 +59,8 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
     db_filter = {name} allows clients to see all databases containing
     the instance name (e.g. test19, test19-backup, test19-sales).
     No db_name set — Odoo uses db_filter to discover databases.
-    No admin_passwd set — client sets it via database manager on first use.
+    admin_passwd is set from db_pass so the database manager has a
+    fixed, known master password (prevents Odoo from generating random ones).
     """
     defaults = {
         "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
@@ -81,6 +82,7 @@ db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
 db_user = {PATRONI_USER}
 db_password = {PATRONI_PASS}
+admin_passwd = {db_pass}
 dbfilter = {name}
 list_db = True
 addons_path = {addons_path_str}
