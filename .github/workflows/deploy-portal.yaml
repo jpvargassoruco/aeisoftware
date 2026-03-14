@@ -51,9 +51,11 @@ jobs:
 
     steps:
     # ── 1. Setup kubectl ────────────────────────────────────────────────────
-    # kubectl is pre-installed on the self-hosted runner node.
-    # The runner pod has ClusterRoleBinding so in-cluster auth works automatically.
-    # We still write the kubeconfig for explicit control over context.
+    # Install kubectl (not bundled in the runner image)
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v4
+
+    # Write kubeconfig from secret for explicit context control
     - name: Configure kubeconfig
       run: |
         mkdir -p ~/.kube
