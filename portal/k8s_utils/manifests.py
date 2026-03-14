@@ -212,6 +212,7 @@ echo "[init] {repo_name} ready."
                 "saas/db-template": db_template or "",
                 "saas/image": odoo_image,
                 "saas/protected": "false",
+                "saas/status": "provisioning",
             },
         },
         "spec": {

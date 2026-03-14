@@ -314,12 +314,13 @@ def _restart_odoo_pod(name: str):
     except Exception as e:
         print(f"[portal] WARNING: Could not patch ConfigMap for {name}: {e}")
 
-    # Restart deployment
+    # Restart deployment and mark as ready
     patch = {"spec": {"template": {"metadata": {"annotations":
-        {"kubectl.kubernetes.io/restartedAt": datetime.datetime.utcnow().isoformat()}}}}}
+        {"kubectl.kubernetes.io/restartedAt": datetime.datetime.utcnow().isoformat()}}}},
+        "metadata": {"annotations": {"saas/status": "ready"}}}
     try:
         apps.patch_namespaced_deployment(f"{name}-odoo", ns, patch)
-        print(f"[portal] Restarted {name}-odoo deployment for clean module initialization")
+        print(f"[portal] Restarted {name}-odoo deployment — status: ready")
     except Exception as e:
         print(f"[portal] WARNING: Could not restart {name}-odoo: {e}")
 
@@ -563,6 +564,7 @@ async def list_instances():
             "namespace": ns.metadata.name,
             "version": version,
             "pod_status": pod_status,
+            "saas_status": annotations.get("saas/status", "ready"),
             "restarts": restarts,
             "protected": annotations.get("saas/protected", "false") == "true",
             "addons_repos": repos,

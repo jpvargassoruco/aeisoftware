@@ -117,6 +117,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3);
   border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
 .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); }
 .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
 .version-tag { font-size: .7rem; background: var(--border); padding: .15rem .5rem;
@@ -403,10 +404,14 @@ function switchTab(tabId, cb, tabEl) {
   if (cb) cb();
 }
 
-function statusBadge(status, restarts) {
-  const s = (status || '').toLowerCase();
+function statusBadge(podStatus, restarts, saasStatus) {
+  // Show provisioning status if the SaaS lifecycle hasn't completed
+  if (saasStatus === 'provisioning') {
+    return `<span class="badge pending" style="animation:pulse 1.5s infinite">⏳ Provisioning</span>`;
+  }
+  const s = (podStatus || '').toLowerCase();
   const cls = s === 'running' ? 'running' : s === 'pending' ? 'pending' : s === 'failed' ? 'failed' : 'unknown';
-  let badge = `<span class="badge ${cls}">${status || 'unknown'}</span>`;
+  let badge = `<span class="badge ${cls}">${podStatus || 'unknown'}</span>`;
   if (restarts > 0) badge += ` <span style="color:var(--yellow);font-size:.75rem">⚠ ${restarts}x</span>`;
   return badge;
 }
@@ -448,7 +453,7 @@ async function loadInstances() {
   try {
     const instances = await api('GET', '/instances');
     document.getElementById('stat-total').textContent   = instances.length;
-    document.getElementById('stat-running').textContent = instances.filter(i => i.pod_status === 'Running').length;
+    document.getElementById('stat-running').textContent = instances.filter(i => i.saas_status === 'ready' && i.pod_status === 'Running').length;
     if (!instances.length) {
       el.innerHTML = '<div class="empty-state"><div class="icon">🚀</div><div>No instances yet. Create your first one!</div></div>';
       return;
@@ -471,7 +476,7 @@ async function loadInstances() {
           <a class="url" href="https://${i.name}.aeisoftware.com" target="_blank">↗ Open Instance</a>
           <div class="meta">${reposHtml}${i.db_template ? ` <span>🗄 ${i.db_template}</span>` : ''}</div>
         </div>
-        <div>${statusBadge(i.pod_status, i.restarts)}</div>
+        <div>${statusBadge(i.pod_status, i.restarts, i.saas_status)}</div>
         <div class="actions">
           <button class="btn btn-ghost btn-sm" onclick="openLogs('${i.name}')">Logs</button>
           <button class="btn btn-ghost btn-sm" onclick="openConfig('${i.name}')">Config</button>
