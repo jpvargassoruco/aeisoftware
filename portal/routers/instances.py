@@ -472,6 +472,7 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
         return
 
     # 3. POST to Odoo's native restore endpoint — handles DB creation + filestore
+    restore_ok = False
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=900.0, write=120.0, pool=5.0)) as http:
             r = await http.post(
@@ -480,12 +481,16 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
                 files={"backup_file": (f"{name}.zip", io.BytesIO(zip_bytes), "application/zip")},
             )
             print(f"[restore] Odoo restore response: HTTP {r.status_code} — {r.text[:200]}")
+            restore_ok = True
     except Exception as e:
-        print(f"[restore] ERROR: Restore request failed: {e}")
-        return
+        # Don't return — the restore may have succeeded despite HTTP errors (large ZIPs
+        # can cause Odoo workers to disconnect after the actual restore completes)
+        print(f"[restore] WARNING: Restore HTTP request failed: {e}")
+        print(f"[restore] Will check if database was created anyway...")
 
-    # 4. Verify the database was actually restored (Odoo returns 200 even on failure)
-    await asyncio.sleep(5)
+    # 4. Verify the database was actually restored
+    # Wait a bit for PostgreSQL to register the new database
+    await asyncio.sleep(10 if not restore_ok else 5)
     try:
         conn = psycopg2.connect(
             host=PATRONI_HOST, port=int(PATRONI_PORT),
@@ -495,9 +500,11 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (name,))
         if not cur.fetchone():
-            print(f"[restore] ERROR: Odoo returned HTTP 200 but database '{name}' was NOT restored!")
-            print(f"[restore] This usually means the master password (admin_passwd) is wrong.")
+            print(f"[restore] ERROR: Database '{name}' does NOT exist after restore attempt!")
+            print(f"[restore] Check master password (admin_passwd) or ZIP file integrity.")
             conn.close()
+            # Still restart pod to set proper status
+            _restart_odoo_pod(name)
             return
         print(f"[restore] Verified: database '{name}' exists in PostgreSQL")
 
@@ -517,7 +524,6 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
         conn.close()
     except Exception as e:
         print(f"[restore] ERROR verifying/configuring DB: {e}")
-        return
 
     # Restart the pod so Odoo cleanly initializes all modules from the restored DB
     _restart_odoo_pod(name)
