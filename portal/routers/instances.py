@@ -27,12 +27,14 @@ class InstanceCreate(BaseModel):
     name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9\-]{1,30}$")
     domain: str
     odoo_version: str = Field("18", pattern=r"^(17|18|19)$")
-    db_template: Optional[str] = None          # e.g. "v18/starter.dump"
+    db_template: Optional[str] = None          # e.g. "v18/backup.zip" — ZIP only
     addons_repos: List[AddonRepo] = Field(default_factory=list)
     image: Optional[str] = None                # override image
-    db_password: str = Field(default="odoo")   # Per-instance PostgreSQL user password.
-                                               # A dedicated PG user named '{name}' is created
-                                               # with this password. Also used as admin_passwd.
+    db_password: str = Field(default="odoo")   # PostgreSQL connection password
+    admin_passwd: str = Field(...)             # REQUIRED: Odoo master/manager password
+    admin_email: str = Field(...)             # REQUIRED: admin user login email
+    admin_password: str = Field(...)          # REQUIRED: admin user initial password
+    lang: str = Field(default="en_US")        # DB language for fresh installs
     odoo_conf_overrides: dict = Field(default_factory=dict)
 
 
@@ -261,19 +263,105 @@ async def create_instance(body: InstanceCreate):
         cf_warning = str(cf_err)
         print(f"[cf] WARNING: could not configure Cloudflare for {body.domain}: {cf_err}")
 
-    # ── If a ZIP template is set, restore it via Odoo's native restore endpoint ─
+    # ── Spawn background task to initialize the database via Odoo native API ──
     if body.db_template:
-        admin_passwd = body.odoo_conf_overrides.get('admin_passwd', body.db_password or 'odoo')
+        # ZIP restore: /web/database/restore handles DB creation + data + filestore
         asyncio.create_task(_restore_via_odoo(
             name=body.name,
             domain=body.domain,
             db_template=body.db_template,
-            admin_passwd=admin_passwd,
+            admin_passwd=body.admin_passwd,
+        ))
+    else:
+        # Fresh install: /web/database/create initializes Odoo with admin user
+        asyncio.create_task(_initialize_fresh_db(
+            name=body.name,
+            domain=body.domain,
+            admin_passwd=body.admin_passwd,
+            admin_email=body.admin_email,
+            admin_password=body.admin_password,
+            lang=body.lang,
         ))
 
     return {"name": body.name, "domain": body.domain,
             "url": f"https://{body.domain}", "status": "provisioning",
             "cf_warning": cf_warning}
+
+
+async def _initialize_fresh_db(
+    name: str, domain: str, admin_passwd: str,
+    admin_email: str, admin_password: str, lang: str = "en_US"
+):
+    """Background task: initialize a fresh Odoo database via /web/database/create.
+
+    Odoo starts in nodb mode (no matching DB). Once healthy, we POST to
+    /web/database/create with the user's credentials. Odoo creates the database,
+    installs base modules, creates the admin user, and starts serving.
+    Finally we fix web.base.url to the correct domain.
+    """
+    import psycopg2
+    from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
+
+    internal_url = f"http://{name}-odoo-service.odoo-{name}.svc.cluster.local:8069"
+    print(f"[db-create] Starting fresh DB initialization for {name}")
+
+    # Wait for Odoo to be reachable in nodb mode
+    await asyncio.sleep(20)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=False) as http:
+        for attempt in range(40):
+            try:
+                r = await http.get(f"{internal_url}/web/health")
+                if r.status_code < 500:
+                    print(f"[db-create] Odoo {name} ready (HTTP {r.status_code}) after {attempt*15+20}s")
+                    break
+                print(f"[db-create] Health {attempt+1}/40: HTTP {r.status_code}")
+            except Exception as e:
+                print(f"[db-create] Health {attempt+1}/40: {type(e).__name__}")
+            await asyncio.sleep(15)
+        else:
+            print(f"[db-create] ERROR: Timeout waiting for Odoo {name}")
+            return
+
+    # Call /web/database/create — Odoo initializes the DB with admin user
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=600.0, write=30.0, pool=5.0)) as http:
+            r = await http.post(
+                f"{internal_url}/web/database/create",
+                data={
+                    "master_pwd": admin_passwd,
+                    "name": name,
+                    "login": admin_email,
+                    "password": admin_password,
+                    "lang": lang,
+                    "demo": "false",
+                },
+            )
+            print(f"[db-create] Odoo create response: HTTP {r.status_code}")
+            if r.status_code not in (200, 302):
+                print(f"[db-create] WARNING: Unexpected status {r.status_code} for {name}")
+    except Exception as e:
+        print(f"[db-create] ERROR: DB create request failed: {e}")
+        return
+
+    # Fix web.base.url
+    try:
+        await asyncio.sleep(5)
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS, dbname=name
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE ir_config_parameter SET value=%s WHERE key IN (%s,%s)",
+            (f"https://{domain}", 'web.base.url', 'web.base.url.static')
+        )
+        print(f"[db-create] Updated web.base.url to https://{domain} ({cur.rowcount} rows)")
+        conn.close()
+    except Exception as e:
+        print(f"[db-create] WARNING: Could not fix web.base.url: {e}")
+
+    print(f"[db-create] Fresh DB init complete for {name} — {domain} is ready")
 
 
 async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_passwd: str):
@@ -292,16 +380,19 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
     print(f"[restore] Starting background restore for {name} from {db_template}")
 
     # 1. Wait for Odoo to be reachable (up to 10 min, poll every 15s)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as http:
+    # In nodb mode (no matching database), Odoo may return 200 on /web/health
+    # or redirect to /web/database/selector — both mean Odoo is up and ready.
+    await asyncio.sleep(20)  # give Odoo container time to start before first poll
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=False) as http:
         for attempt in range(40):
             try:
                 r = await http.get(f"{internal_url}/web/health")
-                if r.status_code == 200:
-                    print(f"[restore] Odoo {name} healthy after {attempt * 15}s")
+                if r.status_code < 500:   # 200, 302, 303 all mean Odoo is up
+                    print(f"[restore] Odoo {name} ready (HTTP {r.status_code}) after {attempt * 15 + 20}s")
                     break
-                print(f"[restore] Health check {attempt+1}/40: HTTP {r.status_code}")
+                print(f"[restore] Health check {attempt+1}/40: HTTP {r.status_code} (Odoo still initializing)")
             except Exception as e:
-                print(f"[restore] Health check {attempt+1}/40: {type(e).__name__}")
+                print(f"[restore] Health check {attempt+1}/40: {type(e).__name__} (not up yet)")
             await asyncio.sleep(15)
         else:
             print(f"[restore] ERROR: Timeout waiting for Odoo {name} — restore aborted")

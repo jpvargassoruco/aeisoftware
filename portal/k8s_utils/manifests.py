@@ -138,31 +138,20 @@ def build_deployment(
     init_containers = []
 
     # ── initContainer: setup-db ──────────────────────────────────────────────────
-    # Creates a dedicated database for this instance. Uses explicit createdb so
-    # that the DB is guaranteed to exist before pg_restore is called.
+    # Only verifies Patroni connectivity. DB creation and initialization are
+    # handled by the portal background task via Odoo's native API:
+    #   • Fresh install  → POST /web/database/create
+    #   • ZIP restore    → POST /web/database/restore
+    # Odoo starts in "no database" (nodb) mode — /web/health returns 200
+    # until the database is created by the background task.
     db_setup_script = f"""#!/bin/sh
 set -e
-echo "[init] Checking if database {name} exists..."
-
-DB_EXISTS=$(PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} -d postgres -tAc \
-  "SELECT 1 FROM pg_database WHERE datname='{name}'" 2>/dev/null)
-
-if [ "$DB_EXISTS" = "1" ]; then
-  echo "[init] Database {name} already exists, skipping create."
-  DB_IS_NEW=0
-else
-  echo "[init] Creating database {name}..."
-  PGPASSWORD={PATRONI_PASS} createdb -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} "{name}" && \
-    echo "[init] Database {name} created." || {{ echo "[init] ERROR: createdb failed"; exit 1; }}
-  DB_IS_NEW=1
-fi
+echo "[init] Verifying Patroni connectivity..."
+PGPASSWORD={PATRONI_PASS} psql -h {PATRONI_HOST} -p {PATRONI_PORT} -U {PATRONI_USER} \\
+  -d postgres -tAc "SELECT 1" > /dev/null && echo "[init] Patroni OK." || \\
+  {{ echo "[init] ERROR: Cannot reach Patroni at {PATRONI_HOST}:{PATRONI_PORT}"; exit 1; }}
+echo "[init] Setup complete — DB will be created by the portal via Odoo API."
 """
-
-
-    db_setup_script += """echo "[init] Database setup complete."
-"""
-
-
 
     init_containers.append({
         "name": "setup-db",
@@ -173,9 +162,6 @@ fi
             {"name": "AWS_SECRET_ACCESS_KEY", "value": S3_SECRET_KEY},
             {"name": "AWS_DEFAULT_REGION",    "value": "us-east-1"},
         ],
-        # Mount the Odoo data PVC so ZIP-format filestore can be written
-        # to /var/lib/odoo/filestore/<name>/ where Odoo expects it
-        "volumeMounts": [{"name": "odoo-data", "mountPath": "/var/lib/odoo"}],
     })
 
 
