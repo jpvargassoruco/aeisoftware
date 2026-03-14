@@ -32,10 +32,10 @@ check() {
 
   if [[ "$http_status" == "$expected_status" ]]; then
     echo "  ✅  PASS  [$http_status]  $label"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     echo "  ❌  FAIL  [$http_status expected $expected_status]  $label"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 }
 
@@ -46,11 +46,11 @@ echo ""
 echo "🔍  Smoke testing: $BASE_URL"
 echo "────────────────────────────────────────────"
 
-check "GET /health  (unauthenticated)"         "$BASE_URL/health"     200
-check "GET /instances  (authenticated)"        "$BASE_URL/instances"  200  "${auth_header[@]}"
-check "GET /instances  (no auth → 403)"        "$BASE_URL/instances"  403
-check "GET /templates  (authenticated)"        "$BASE_URL/templates"  200  "${auth_header[@]}"
-check "GET /nonexistent → 404"                 "$BASE_URL/nonexistent" 404
+check "GET /health  (unauthenticated)"              "$BASE_URL/health"            200
+check "GET /api/instances  (authenticated)"         "$BASE_URL/api/instances"     200  "${auth_header[@]}"
+check "GET /api/instances  (no auth → 403)"         "$BASE_URL/api/instances"     403
+check "GET /api/templates  (authenticated)"         "$BASE_URL/api/templates"     200  "${auth_header[@]}"
+check "GET /api/nonexistent → 404"                  "$BASE_URL/api/nonexistent"   404
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo "────────────────────────────────────────────"

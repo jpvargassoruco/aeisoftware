@@ -1,0 +1,99 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub Actions Self-Hosted Runner — deployed inside K3s cluster
+#
+# This runner is on the same private network as the K3s API server (10.40.2.171)
+# so kubectl commands in deploy-portal.yaml can reach https://10.40.2.171:6443
+#
+# One-time setup:
+#   kubectl apply -f portal/k8s-portal/github-runner.yaml
+#
+# The runner registration token expires after 1 hour; to refresh:
+#   New token: gh api repos/jpvargassoruco/aeisoftware/actions/runners/registration-token --method POST --jq '.token'
+#   Then: kubectl set env deployment/github-runner RUNNER_TOKEN=<new-token> -n github-runner
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: github-runner
+
+---
+# RBAC: the runner pod needs cluster-admin to apply portal manifests
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner
+  namespace: github-runner
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: github-runner-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: github-runner
+  namespace: github-runner
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: github-runner
+  labels:
+    app: github-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+    spec:
+      serviceAccountName: github-runner
+      # Mount the in-cluster kubeconfig so kubectl works inside the runner
+      containers:
+      - name: runner
+        image: myoung34/github-runner:latest
+        env:
+        - name: REPO_URL
+          value: "https://github.com/jpvargassoruco/aeisoftware"
+        - name: RUNNER_NAME
+          value: "k3s-runner"
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: runner-token
+              key: token
+        - name: RUNNER_LABELS
+          value: "self-hosted,k3s"
+        - name: RUNNER_WORKDIR
+          value: "/tmp/runner"
+        - name: EPHEMERAL
+          value: "false"
+        # Point kubectl at the in-cluster API server
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        volumeMounts:
+        - name: runner-workdir
+          mountPath: /tmp/runner
+      volumes:
+      - name: runner-workdir
+        emptyDir: {}
