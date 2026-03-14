@@ -238,7 +238,7 @@ echo "[init] {repo_name} ready."
                         ],
                         "readinessProbe": {
                             "httpGet": {"path": "/web/health", "port": 8069},
-                            "initialDelaySeconds": 30, "periodSeconds": 10, "failureThreshold": 6,
+                            "initialDelaySeconds": 60, "periodSeconds": 10, "failureThreshold": 30,
                         },
                         "resources": {
                             "requests": {"cpu": "200m", "memory": "512Mi"},

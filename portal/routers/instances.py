@@ -288,6 +288,25 @@ async def create_instance(body: InstanceCreate):
             "cf_warning": cf_warning}
 
 
+def _restart_odoo_pod(name: str):
+    """Restart the Odoo deployment so it cleanly initializes modules from the new/restored DB.
+
+    After /web/database/create or /web/database/restore, Odoo holds a partially-initialized
+    registry that causes KeyError: 'ir.http' on /web/health. A pod restart forces Odoo to
+    discover the database via dbfilter and load all modules cleanly.
+    """
+    import datetime
+    _, apps, _ = _k8s()
+    ns = f"odoo-{name}"
+    patch = {"spec": {"template": {"metadata": {"annotations":
+        {"kubectl.kubernetes.io/restartedAt": datetime.datetime.utcnow().isoformat()}}}}}
+    try:
+        apps.patch_namespaced_deployment(f"{name}-odoo", ns, patch)
+        print(f"[portal] Restarted {name}-odoo deployment for clean module initialization")
+    except Exception as e:
+        print(f"[portal] WARNING: Could not restart {name}-odoo: {e}")
+
+
 async def _initialize_fresh_db(
     name: str, domain: str, admin_passwd: str,
     admin_email: str, admin_password: str, lang: str = "en_US"
@@ -377,6 +396,8 @@ async def _initialize_fresh_db(
         print(f"[db-create] ERROR verifying/configuring DB: {e}")
         return
 
+    # Restart the pod so Odoo cleanly initializes all modules from the new DB
+    _restart_odoo_pod(name)
     print(f"[db-create] Fresh DB init complete for {name} — {domain} is ready")
 
 
@@ -479,6 +500,8 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
         print(f"[restore] ERROR verifying/configuring DB: {e}")
         return
 
+    # Restart the pod so Odoo cleanly initializes all modules from the restored DB
+    _restart_odoo_pod(name)
     print(f"[restore] Restore complete for {name} — {domain} is ready")
 
 
