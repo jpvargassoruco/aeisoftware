@@ -137,7 +137,12 @@ jobs:
     - name: Smoke test
       run: |
         sleep 5   # brief grace period for readiness probe
-        bash portal/tests/smoke_test.sh "https://$HOST" "$PORTAL_API_KEY"
+        # Use in-cluster service DNS — the runner runs inside K3s so it can
+        # reach ClusterIP services directly without going through ingress/DNS.
+        # External URL (https://$HOST) requires Cloudflare tunnel / public DNS.
+        CLUSTER_URL="http://saas-portal-svc.${NAMESPACE}.svc.cluster.local:8000"
+        echo "Testing in-cluster URL: $CLUSTER_URL  (public: https://$HOST)"
+        bash portal/tests/smoke_test.sh "$CLUSTER_URL" "$PORTAL_API_KEY"
 
     # ── 7. Rollback on failure ───────────────────────────────────────────────
     - name: Rollback on failure
