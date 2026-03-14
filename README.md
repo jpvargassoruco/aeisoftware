@@ -1,227 +1,181 @@
-# Aeisoftware K3s SaaS Platform
+# High-Level Design — Aeisoftware K3s SaaS Platform
 
-Multi-tenant Odoo hosting on K3s HA with automated provisioning, Ceph distributed storage, Cloudflare routing, and a self-hosted SaaS management portal.
+## 1. Overview
 
-## Architecture
+Aeisoftware operates a multi-tenant Odoo SaaS platform on a private OpenStack cloud. The platform enables automated provisioning, lifecycle management, and per-tenant isolation of Odoo ERP instances via a self-hosted management portal at **portal.aeisoftware.com**.
 
-```
-Internet → Cloudflare (DNS + Tunnel + Access MFA)
-               │
-          Traefik Ingress (K3s)
-               │
-    ┌──────────┼────────────┬────────────────────┐
-  Odoo 17   Odoo 18   Odoo 19    SaaS Portal
-  client1   client2   client3  portal.aeisoftware.com
-    │           │          │         │
-    ├── data  → ceph-cephfs (ReadWriteMany)    ← K8s Python API
-    └── addons→ ceph-cephfs (ReadWriteMany)    ←  ↑ provisions
-               │
-    HAProxy VIP → patroni-db.kube-system:5432
-               │
-    Patroni PostgreSQL HA (PG3 Leader, PG1+PG2 Replica)
-               │
-        Ceph Storage Backend
-        ├── CephFS → shared filesystem (data + addons)
-        └── RGW   → S3 API (DB templates at s3://odoo-templates/)
-```
-
-## Infrastructure
-
-| Node | Floating IP | Internal IP | Role |
-|:---|:---|:---|:---|
-| control-plane-1 | 10.40.2.171 | 10.9.111.28 | K3s Server (etcd) |
-| control-plane-2 | 10.40.2.182 | 10.9.111.161 | K3s Server (etcd) |
-| control-plane-3 | 10.40.2.153 | 10.9.111.205 | K3s Server (etcd) |
-| worker-1 | 10.40.2.158 | — | K3s Agent |
-| worker-2 | 10.40.2.159 | — | K3s Agent |
-| worker-3 | 10.40.2.156 | — | K3s Agent |
-| PostgreSQL-1 | 10.40.2.200 | 10.9.111.157 | Patroni Replica |
-| PostgreSQL-2 | 10.40.2.174 | 10.9.111.160 | Patroni Replica |
-| PostgreSQL-3 | 10.40.2.193 | 10.9.111.100 | Patroni Leader |
-| Ceph (stg-nfs-01) | 10.40.1.240 | — | MON / MDS / RGW |
-| Ceph (stg-nfs-02) | 10.40.1.241 | — | MON / MDS / RGW |
+Each Odoo client receives:
+- A dedicated Kubernetes namespace and deployment
+- An isolated PostgreSQL database
+- CephFS-backed persistent storage for data and addons
+- A Cloudflare DNS route with MFA-protected access
 
 ---
 
-## SaaS Portal — `portal.aeisoftware.com`
+## 2. Architecture Diagram
 
-The portal replaces `crear_instancia_odoo.sh` with a REST API + web dashboard.
+```
+Internet
+    │
+    ▼
+Cloudflare (DNS + Tunnel + Access MFA)
+    │  *.aeisoftware.com
+    ▼
+┌──────────────────────────────────────────────────────┐
+│   Cloudflare Tunnel Client (Docker on WSL)           │
+│   cloudflared → web-proxy → K3s Traefik Ingress     │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│   K3s HA Cluster (6 nodes, embedded etcd)            │
+│                                                      │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐            │
+│   │ CP-1    │  │ CP-2    │  │ CP-3    │ Control     │
+│   │ .28     │  │ .161    │  │ .205    │ Planes      │
+│   └─────────┘  └─────────┘  └─────────┘            │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐            │
+│   │Worker-1 │  │Worker-2 │  │Worker-3 │ Agents      │
+│   └─────────┘  └─────────┘  └─────────┘            │
+│                                                      │
+│   Workloads:                                         │
+│   ┌──────────────────────────────────────┐          │
+│   │  portal-system/saas-portal (2 pods)  │──────┐   │
+│   └──────────────────────────────────────┘      │   │
+│   ┌──────────┐ ┌──────────┐ ┌──────────┐       │   │
+│   │ odoo-c1  │ │ odoo-c2  │ │ odoo-c3  │ ...   │   │
+│   │ Odoo 17  │ │ Odoo 18  │ │ Odoo 19  │       │   │
+│   └────┬─────┘ └────┬─────┘ └────┬─────┘       │   │
+│        │             │            │              │   │
+│        └─────────────┼────────────┘              │   │
+│                      │ Kubernetes API            │   │
+└──────────────────────┼───────────────────────────┘   │
+                       │                               │
+           ┌───────────┼───────────────────────────────┘
+           │           │
+           ▼           ▼
+┌──────────────────────────────────────────────────────┐
+│   Patroni PostgreSQL HA Cluster (3 nodes)            │
+│                                                      │
+│   PG-1 (Replica) ◄──► PG-2 (Replica) ◄──► PG-3     │
+│   10.9.111.157        10.9.111.160        (Leader)   │
+│                                            10.9.111. │
+│   HAProxy VIP: 10.9.111.250:5432            100      │
+│   etcd DCS: 10.9.111.{157,160,100}:2379             │
+└──────────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────┐
+│   Ceph Distributed Storage (2 nodes)                 │
+│                                                      │
+│   stg-nfs-01 (10.40.1.240) — MON / MDS / RGW        │
+│   stg-nfs-02 (10.40.1.241) — MON / MDS / RGW        │
+│                                                      │
+│   ├── ceph-rbd   → ReadWriteOnce (Odoo data/fstore) │
+│   ├── ceph-cephfs → ReadWriteMany (shared addons)   │
+│   └── RGW (S3)  → DB templates (odoo-templates)     │
+└──────────────────────────────────────────────────────┘
+```
 
-| Endpoint | Description |
+---
+
+## 3. Components
+
+### 3.1 K3s Kubernetes Cluster
+- **Type:** HA cluster with embedded etcd
+- **Distribution:** K3s (lightweight Kubernetes)
+- **Nodes:** 3 control planes + 3 workers (6 total)
+- **Ingress Controller:** Traefik (K3s bundled, disabled for custom install)
+- **RBAC:** Portal runs with `saas-portal-manager` ClusterRole
+
+### 3.2 Patroni PostgreSQL HA
+- **Version:** PostgreSQL 16.13
+- **HA Manager:** Patroni with etcd3 as distributed configuration store
+- **Topology:** 1 Leader + 2 streaming Replicas (synchronous)
+- **Failover:** Automatic via Patroni (30s TTL, 10s loop_wait)
+- **Access:** HAProxy VIP on `10.9.111.250:5432` with in-cluster K8s Service `patroni-db.kube-system.svc.cluster.local`
+
+### 3.3 SaaS Portal
+- **Framework:** FastAPI (Python 3.11+)
+- **Image:** `ghcr.io/jpvargassoruco/aeisoftware/saas-portal:latest`
+- **Replicas:** 2 (HA)
+- **Auth:** API key (`X-API-Key` header) + Cloudflare Access MFA
+- **CI/CD:** GitHub Actions auto-build on push to `k3s-saas` branch
+- **Functions:** Create/delete/configure/restart Odoo instances, manage DB templates
+
+### 3.4 Ceph Storage
+- **Nodes:** 2 (stg-nfs-01, stg-nfs-02) running MON, MDS, RGW
+- **CSI Driver:** ceph-csi (Helm charts for RBD and CephFS)
+- **StorageClasses:**
+  - `ceph-rbd` — ReadWriteOnce (default) for Odoo data
+  - `ceph-cephfs` — ReadWriteMany for shared addons across workers
+- **RGW (S3):** DB template storage (pg_dump backups)
+
+### 3.5 Cloudflare
+- **DNS:** `*.aeisoftware.com` → Cloudflare Tunnel
+- **Tunnel:** cloudflared Docker container on WSL
+- **Access:** MFA-protected portal access
+- **API Integration:** Portal auto-creates/deletes DNS routes + tunnel configs per instance
+
+---
+
+## 4. Instance Provisioning Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Portal
+    participant K8s
+    participant PG as PostgreSQL
+    participant CF as Cloudflare
+
+    User->>Portal: POST /api/instances
+    Portal->>K8s: Create Namespace (odoo-{name})
+    Portal->>K8s: Create Secret (DB credentials)
+    Portal->>K8s: Create ConfigMap (odoo.conf)
+    Portal->>K8s: Create PVCs (data + addons)
+    Portal->>K8s: Create Deployment (initContainers + Odoo)
+    K8s->>PG: initContainer: setup-db creates database
+    K8s->>K8s: initContainer: sync-addons clones git repos
+    Portal->>K8s: Create Service + Ingress
+    Portal->>CF: Create DNS CNAME + Tunnel route
+    Portal-->>User: 201 Created (cf_warning if CF fails)
+```
+
+---
+
+## 5. Tenant Isolation Model
+
+| Layer | Mechanism |
 |:---|:---|
-| `POST /api/instances` | Create Odoo instance (initContainers: DB restore + git addons) |
-| `GET /api/instances` | List all instances with pod status |
-| `DELETE /api/instances/{name}` | Delete instance + Cloudflare cleanup |
-| `PATCH /api/instances/{name}/config` | Update `odoo.conf` per client |
-| `POST /api/instances/{name}/restart` | Rolling restart |
-| `GET /api/instances/{name}/logs` | Tail pod logs |
-| `POST /api/templates/{path}` | Upload pg_dump to Ceph RGW S3 |
-| `GET /api/templates` | List available DB templates |
-
-**Auth:** `X-API-Key` header + Cloudflare Access MFA on the domain
+| **Network** | Separate K8s namespace per tenant |
+| **Database** | Per-instance database name + `db_filter = ^{name}$` |
+| **Storage** | Per-instance PVCs (CephFS for addons, RBD for data) |
+| **Config** | Per-instance ConfigMap (`odoo.conf`) and Secret |
+| **DNS** | Per-instance Cloudflare route (`{name}.aeisoftware.com`) |
+| **Access** | Cloudflare Access MFA on portal; API key for automation |
 
 ---
 
-## Quick Start — Deploy an Odoo Instance
+## 6. Security Model
 
-### Via portal API
-```bash
-curl -X POST https://portal.aeisoftware.com/api/instances \
-  -H "X-API-Key: <your-api-key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "acme",
-    "domain": "acme.aeisoftware.com",
-    "odoo_version": "18",
-    "db_template": "v18/starter.dump",
-    "addons_repo": "https://github.com/your-org/odoo-addons.git",
-    "odoo_conf_overrides": {"workers": 4}
-  }'
-```
-
-### Via script (legacy)
-```bash
-export AZURE_PG_HOST="patroni-db.kube-system.svc.cluster.local"
-export AZURE_PG_USER="odoo"
-export AZURE_PG_PASSWORD="<password>"
-export CF_API_TOKEN="<token>"
-export CF_ACCOUNT_ID="<account>"
-export CF_ZONE_ID="<zone>"
-export CF_TUNNEL_ID="670c6e18-748b-4399-8fa4-7c78f3a1d342"
-
-./crear_instancia_odoo.sh client1 client1.aeisoftware.com 18
-kubectl apply -f k8s-client1/
-```
-
-### Remove an instance
-```bash
-# Via API (also cleans Cloudflare)
-curl -X DELETE https://portal.aeisoftware.com/api/instances/acme \
-  -H "X-API-Key: <key>" -G -d "domain=acme.aeisoftware.com"
-
-# Via kubectl
-kubectl delete ns odoo-<name>
-```
+- **Portal Access:** Cloudflare Access (MFA) + API key authentication
+- **Database Master Password:** Set per-instance via `admin_passwd` in `odoo.conf`
+- **Database Manager:** `list_db = True` (protected by `admin_passwd`)
+- **PostgreSQL Auth:** md5 password authentication from K3s subnet (pg_hba.conf)
+- **Secrets Management:** K8s Secrets for all credentials
+- **CI/CD:** GitHub Actions with GHCR credentials for container registry
+- **SSH:** Key-based authentication only (`~/.ssh/id_rsa`)
 
 ---
 
-## 1. Loading a Pre-configured Database Template
+## 7. Supported Odoo Versions
 
-```bash
-# Dump your configured Odoo database
-pg_dump -h patroni-db.kube-system.svc.cluster.local -U odoo -Fc odoo_template > template.dump
-
-# Upload to Ceph RGW via portal API
-curl -X POST https://portal.aeisoftware.com/api/templates/v18/starter.dump \
-  -H "X-API-Key: <key>" -F "file=@template.dump"
-```
-
-On instance create with `"db_template": "v18/starter.dump"`, an `initContainer` automatically restores it if the DB doesn't exist.
-
----
-
-## 2. Custom Addons per Client
-
-Set `addons_repo` when creating the instance. An `initContainer` runs `git clone/pull` on every pod start:
-
-```json
-{ "addons_repo": "https://github.com/your-org/client-addons.git" }
-```
-
-Update an existing client:
-```bash
-curl -X PATCH https://portal.aeisoftware.com/api/instances/client1/config \
-  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
-  -d '{"addons_repo": "https://github.com/your-org/new-addons.git"}'
-```
-
----
-
-## 3. Modifying odoo.conf
-
-### For all future instances — edit the template in `crear_instancia_odoo.sh`
-```bash
-nano /home/ubuntu/aeisoftware/crear_instancia_odoo.sh
-# Find: # --- 6. ConfigMap (odoo.conf) ---
-```
-
-### For a specific client
-```bash
-# Via API
-curl -X PATCH https://portal.aeisoftware.com/api/instances/client1/config \
-  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
-  -d '{"odoo_conf_overrides": {"workers": 4, "smtp_server": "smtp.client.com"}}'
-
-# Via kubectl
-kubectl edit configmap client1-odoo-conf -n odoo-client1
-kubectl rollout restart deployment/client1-odoo -n odoo-client1
-```
-
----
-
-## 4. Custom Dockerfile
-
-```dockerfile
-FROM odoo:18
-USER root
-RUN pip3 install --no-cache-dir zeep paramiko pandas
-COPY ./addons/my_module /usr/lib/python3/dist-packages/odoo/addons/my_module
-USER odoo
-```
-
-```bash
-# Build and import into K3s
-docker build -t ghcr.io/jpvargassoruco/aeisoftware/odoo-custom:18 .
-docker save ghcr.io/jpvargassoruco/aeisoftware/odoo-custom:18 | \
-  ssh ubuntu@<worker> "sudo k3s ctr images import -"
-```
-
-GitHub Actions auto-builds on push to `portal/` or `docker/` — see `.github/workflows/`.
-
----
-
-## Repository Structure
-
-```
-├── crear_instancia_odoo.sh          # Legacy script (still works)
-├── portal/                          # SaaS REST API + Web Dashboard
-│   ├── main.py                      # FastAPI app (API key auth)
-│   ├── routers/instances.py         # Instance CRUD + Cloudflare
-│   ├── routers/templates.py         # DB template upload/list (Ceph RGW)
-│   ├── k8s_utils/manifests.py       # K8s manifest engine (replaces script)
-│   ├── static/index.html            # Web dashboard
-│   ├── Dockerfile
-│   └── k8s-portal/portal.yaml      # RBAC + Deployment + Ingress
-├── ceph/setup-ceph-csi.sh           # Ceph CSI driver setup
-├── k3s-cluster/setup-k3s.sh
-├── postgresql-ha/setup-patroni.sh
-├── .github/workflows/
-│   └── build-portal.yaml            # Auto-build portal image → ghcr.io
-├── IMPLEMENTATION_PLAN.md
-└── k8s-<client>/                    # Generated per-client manifests
-    ├── 02-configmap.yaml            # ← odoo.conf
-    ├── 03-pvc.yaml                  # ← ceph-cephfs data + addons
-    └── 04-deployment.yaml           # ← initContainers + fsGroup:101
-```
-
-## Odoo Versions Supported
-
-| Version | Image | Notes |
+| Version | Image | Status |
 |:---|:---|:---|
 | 17 | `odoo:17` | LTS |
 | 18 | `odoo:18` | Current |
 | 19 | `odoo:19` | Latest |
-
----
-
-## GitHub Actions CI/CD
-
-On push to `k3s-saas` branch (files in `portal/`):
-1. Builds `portal/Dockerfile`
-2. Pushes to `ghcr.io/jpvargassoruco/aeisoftware/saas-portal:latest`
-
-**Requires:** Settings → Actions → General → Workflow permissions → "Read and write permissions"
-
 ---
 
 ## Roadmap
@@ -234,7 +188,7 @@ On push to `k3s-saas` branch (files in `portal/`):
 - [x] DB template initContainer (pg_restore from Ceph RGW)
 - [x] Git addons sync initContainer
 - [x] GitHub Actions CI/CD for portal image
-- [ ] Custom Odoo Dockerfile (per-version, baked addons)
-- [ ] `odoo_k8s_saas` Odoo module (auto-provision on E-commerce sale)
+- [x] Custom Odoo Dockerfile (per-version, baked addons)
+- [x] `odoo_k8s_saas` Odoo module (auto-provision on E-commerce sale)
 - [ ] Prometheus + Grafana monitoring
 - [ ] Rancher portal
