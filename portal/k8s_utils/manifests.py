@@ -65,7 +65,7 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
     defaults = {
         "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
         "limit_memory_hard": 2684354560, "limit_memory_soft": 2147483648,
-        "limit_request": 8192, "limit_time_cpu": 600, "limit_time_real": 1200,
+        "limit_request": 8192, "limit_time_cpu": 1800, "limit_time_real": 3600,
     }
     cfg = {**defaults, **overrides}
     # Build addons_path: base path + one entry per cloned repo subdirectory

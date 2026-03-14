@@ -454,7 +454,7 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
 
     # 3. POST to Odoo's native restore endpoint — handles DB creation + filestore
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=5.0)) as http:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=900.0, write=120.0, pool=5.0)) as http:
             r = await http.post(
                 f"{internal_url}/web/database/restore",
                 data={"master_pwd": admin_passwd, "name": name, "copy": "true"},
