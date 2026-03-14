@@ -294,10 +294,27 @@ def _restart_odoo_pod(name: str):
     After /web/database/create or /web/database/restore, Odoo holds a partially-initialized
     registry that causes KeyError: 'ir.http' on /web/health. A pod restart forces Odoo to
     discover the database via dbfilter and load all modules cleanly.
+
+    Also patches the ConfigMap to set list_db = False, disabling the database manager UI
+    for clients. During initial provisioning, list_db = True is required so the portal's
+    background task can call /web/database/create or /web/database/restore.
     """
     import datetime
-    _, apps, _ = _k8s()
+    core, apps, _ = _k8s()
     ns = f"odoo-{name}"
+
+    # Disable database manager after provisioning
+    try:
+        cm = core.read_namespaced_config_map(f"{name}-odoo-conf", ns)
+        conf = cm.data.get("odoo.conf", "")
+        if "list_db = True" in conf:
+            cm.data["odoo.conf"] = conf.replace("list_db = True", "list_db = False")
+            core.patch_namespaced_config_map(f"{name}-odoo-conf", ns, {"data": cm.data})
+            print(f"[portal] Patched {name} ConfigMap: list_db = False")
+    except Exception as e:
+        print(f"[portal] WARNING: Could not patch ConfigMap for {name}: {e}")
+
+    # Restart deployment
     patch = {"spec": {"template": {"metadata": {"annotations":
         {"kubectl.kubernetes.io/restartedAt": datetime.datetime.utcnow().isoformat()}}}}}
     try:
@@ -305,6 +322,7 @@ def _restart_odoo_pod(name: str):
         print(f"[portal] Restarted {name}-odoo deployment for clean module initialization")
     except Exception as e:
         print(f"[portal] WARNING: Could not restart {name}-odoo: {e}")
+
 
 
 async def _initialize_fresh_db(
