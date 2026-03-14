@@ -32,10 +32,10 @@ check() {
 
   if [[ "$http_status" == "$expected_status" ]]; then
     echo "  ✅  PASS  [$http_status]  $label"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     echo "  ❌  FAIL  [$http_status expected $expected_status]  $label"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 }
 
