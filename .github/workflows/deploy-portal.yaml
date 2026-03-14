@@ -45,14 +45,15 @@ on:
 jobs:
   deploy:
     name: Deploy → ${{ inputs.environment }}
-    runs-on: ubuntu-latest
+    # Self-hosted runner inside K3s cluster — can reach private API at 10.40.2.171:6443
+    runs-on: [self-hosted, k3s]
     environment: ${{ inputs.environment }}  # links to GitHub Environments for audit trail
 
     steps:
     # ── 1. Setup kubectl ────────────────────────────────────────────────────
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v4
-
+    # kubectl is pre-installed on the self-hosted runner node.
+    # The runner pod has ClusterRoleBinding so in-cluster auth works automatically.
+    # We still write the kubeconfig for explicit control over context.
     - name: Configure kubeconfig
       run: |
         mkdir -p ~/.kube
