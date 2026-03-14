@@ -215,22 +215,38 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
     <div class="form-row">
       <div class="form-group">
-        <label>DB Template (optional)</label>
-        <select id="f-template"><option value="">— No template —</option></select>
+        <label>DB Backup (optional)</label>
+        <select id="f-template"><option value="">— Fresh Odoo install —</option></select>
       </div>
       <div class="form-group">
         <label>Workers</label>
         <input id="f-workers" type="number" value="2" min="0" max="16">
       </div>
     </div>
+    <div class="section-label" style="margin-top:.5rem">Credentials (required)</div>
     <div class="form-row">
       <div class="form-group">
-        <label>Odoo Master Password</label>
-        <input id="f-dbpass" type="password" placeholder="(defaults to 'odoo')">
+        <label>Master Password *</label>
+        <input id="f-dbpass" type="password" placeholder="Odoo DB manager password">
       </div>
       <div class="form-group">
-        <label>Admin User Password</label>
-        <input id="f-adminpass" type="password" placeholder="admin">
+        <label>Admin Email *</label>
+        <input id="f-email" type="email" placeholder="admin@company.com">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Admin Password *</label>
+        <input id="f-adminpass" type="password" placeholder="Initial admin user password">
+      </div>
+      <div class="form-group">
+        <label>Language</label>
+        <select id="f-lang">
+          <option value="en_US">English (US)</option>
+          <option value="es_ES">Spanish (ES)</option>
+          <option value="es_BO">Spanish (BO)</option>
+          <option value="pt_BR">Portuguese (BR)</option>
+        </select>
       </div>
     </div>
     <div style="display:flex;gap:.8rem;justify-content:flex-end;margin-top:1.5rem">
@@ -532,23 +548,30 @@ function closeCreate() { closeModal('create-modal'); }
 async function createInstance() {
   const btn = document.getElementById('btn-create');
   btn.innerHTML = '<span class="spinner"></span> Creating...'; btn.disabled = true;
-  await repaint(); // force browser to paint spinner before network call
+  await repaint();
   try {
-    const overrides = {};
-    const workers   = document.getElementById('f-workers').value;
-    const adminpass = document.getElementById('f-adminpass').value;
-    if (workers)   overrides.workers      = parseInt(workers);
-    if (adminpass) overrides.admin_passwd = adminpass;
+    const workers     = parseInt(document.getElementById('f-workers').value) || 2;
+    const masterPwd   = document.getElementById('f-dbpass').value.trim();
+    const adminEmail  = document.getElementById('f-email').value.trim();
+    const adminPwd    = document.getElementById('f-adminpass').value.trim();
+    const lang        = document.getElementById('f-lang').value;
+
+    if (!masterPwd)  throw new Error('Master Password is required');
+    if (!adminEmail) throw new Error('Admin Email is required');
+    if (!adminPwd)   throw new Error('Admin Password is required');
 
     const body = {
-      name:         document.getElementById('f-name').value.trim(),
-      domain:       document.getElementById('f-domain').value.trim(),
-      odoo_version: document.getElementById('f-version').value,
-      db_password:  document.getElementById('f-dbpass').value || 'odoo',
-      db_template:  document.getElementById('f-template').value || null,
-      image:        document.getElementById('f-image').value.trim() || null,
-      addons_repos: getRepos('repos-container'),
-      odoo_conf_overrides: overrides,
+      name:           document.getElementById('f-name').value.trim(),
+      domain:         document.getElementById('f-domain').value.trim(),
+      odoo_version:   document.getElementById('f-version').value,
+      db_template:    document.getElementById('f-template').value || null,
+      image:          document.getElementById('f-image').value.trim() || null,
+      addons_repos:   getRepos('repos-container'),
+      admin_passwd:   masterPwd,
+      admin_email:    adminEmail,
+      admin_password: adminPwd,
+      lang:           lang,
+      odoo_conf_overrides: { workers },
     };
     if (!body.name || !body.domain) throw new Error('Name and domain are required');
     const resp = await api('POST', '/instances', body);
