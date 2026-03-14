@@ -1,28 +1,62 @@
 name: Build & Push SaaS Portal
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Trigger matrix:
+#   push → main      Build prod-{sha} + latest → deploy to portal-system (prod)
+#   push → other     Build dev-{sha}           → deploy to portal-dev
+#
+# Pull-request tests + QA deploy are handled by test-portal.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
     paths:
       - 'portal/**'
       - '.github/workflows/build-portal.yaml'
+      - '.github/workflows/deploy-portal.yaml'
 
 jobs:
   build:
+    name: Build & Push
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      environment: ${{ steps.meta.outputs.environment }}
+
     steps:
     - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Compute image metadata
+      id: meta
+      run: |
+        SHORT_SHA="${GITHUB_SHA::7}"
+        if [[ "${{ github.ref_name }}" == "main" ]]; then
+          echo "environment=prod"            >> "$GITHUB_OUTPUT"
+          echo "image_tag=prod-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "extra_tag=latest"            >> "$GITHUB_OUTPUT"
+        else
+          echo "environment=dev"             >> "$GITHUB_OUTPUT"
+          echo "image_tag=dev-${SHORT_SHA}"  >> "$GITHUB_OUTPUT"
+          echo "extra_tag=dev-latest"        >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
-        # Uses GITHUB_TOKEN (auto) — requires "Read & write" in repo Actions settings.
-        # If you configured a PAT secret (e.g. CR_PAT), replace with: ${{ secrets.CR_PAT }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push portal image
@@ -31,6 +65,24 @@ jobs:
         context: ./portal
         push: true
         tags: |
-          ghcr.io/${{ github.repository }}/saas-portal:latest
-          ghcr.io/${{ github.repository }}/saas-portal:${{ github.sha }}
+          ghcr.io/${{ github.repository }}/saas-portal:${{ steps.meta.outputs.image_tag }}
+          ghcr.io/${{ github.repository }}/saas-portal:${{ steps.meta.outputs.extra_tag }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
+  # ── Deploy the freshly built image ─────────────────────────────────────────
+  deploy:
+    name: Deploy → ${{ needs.build.outputs.environment }}
+    needs: build
+    uses: ./.github/workflows/deploy-portal.yaml
+    with:
+      environment: ${{ needs.build.outputs.environment }}
+      image_tag: ${{ needs.build.outputs.image_tag }}
+    secrets:
+      K8S_CONFIG: ${{ secrets.K8S_CONFIG }}
+      PATRONI_PASS: ${{ secrets.PATRONI_PASS }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+      S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+      PORTAL_API_KEY_DEV: ${{ secrets.PORTAL_API_KEY_DEV }}
+      PORTAL_API_KEY_PROD: ${{ secrets.PORTAL_API_KEY_PROD }}

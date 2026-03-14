@@ -1,0 +1,160 @@
+---
+# ──────────────────────────────────────────────
+# portal-dev.yaml  —  DEV environment (portal-dev namespace)
+# CI patches the portal-env Secret at deploy time before applying.
+# kubectl apply -f portal-dev.yaml
+# ──────────────────────────────────────────────
+
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portal-dev
+  labels:
+    environment: dev
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: saas-portal
+  namespace: portal-dev
+
+---
+# ClusterRoleBinding — reuse the ClusterRole already created by portal.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: saas-portal-manager-dev
+subjects:
+- kind: ServiceAccount
+  name: saas-portal
+  namespace: portal-dev
+roleRef:
+  kind: ClusterRole
+  name: saas-portal-manager
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Secret — CI overwrites/patches this before rolling out the image.
+# Values here are safe placeholder defaults; the real values come from
+# GitHub Actions secrets (PORTAL_API_KEY_DEV, etc.).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: portal-env
+  namespace: portal-dev
+type: Opaque
+stringData:
+  PORTAL_API_KEY: "CHANGE_ME_DEV"
+  PATRONI_HOST: "patroni-db.kube-system.svc.cluster.local"
+  PATRONI_PORT: "5432"
+  PATRONI_USER: "odoo"
+  PATRONI_PASS: "CHANGE_ME"
+  CF_API_TOKEN: "CHANGE_ME"
+  CF_ACCOUNT_ID: "2755b41b811dc9afc7396ed5d1e27644"
+  CF_ZONE_ID: "8a6fcaacd01aa1d8e544c85df5a88c8c"
+  CF_TUNNEL_ID: "670c6e18-748b-4399-8fa4-7c78f3a1d342"
+  S3_ENDPOINT: "http://10.40.1.240:7480"
+  S3_ACCESS_KEY: "CHANGE_ME"
+  S3_SECRET_KEY: "CHANGE_ME"
+  S3_BUCKET: "odoo-templates-dev"
+
+---
+# Deployment — image tag injected by CI via:
+#   kubectl set image deployment/saas-portal portal=<image> -n portal-dev
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-portal
+  namespace: portal-dev
+  labels:
+    app: saas-portal
+    environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: saas-portal
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: saas-portal
+        environment: dev
+    spec:
+      serviceAccountName: saas-portal
+      imagePullSecrets:
+      - name: ghcr-credentials
+      containers:
+      - name: portal
+        image: ghcr.io/jpvargassoruco/aeisoftware/saas-portal:dev-latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - secretRef:
+            name: portal-env
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: saas-portal-svc
+  namespace: portal-dev
+spec:
+  selector:
+    app: saas-portal
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+
+---
+# Ingress — dev subdomain
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: saas-portal-ingress
+  namespace: portal-dev
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: portal-dev.aeisoftware.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: saas-portal-svc
+            port:
+              number: 8000

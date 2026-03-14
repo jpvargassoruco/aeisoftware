@@ -1,0 +1,147 @@
+name: Deploy SaaS Portal
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reusable workflow — called by build-portal.yaml (prod/dev) and
+# test-portal.yaml (qa).
+#
+# Required repository secrets (Settings → Secrets → Actions):
+#   K8S_CONFIG          base64-encoded kubeconfig (base64 -w0 ~/.kube/config)
+#   PATRONI_PASS        Patroni PostgreSQL password
+#   CF_API_TOKEN        Cloudflare API token
+#   S3_ACCESS_KEY       S3 / Ceph access key
+#   S3_SECRET_KEY       S3 / Ceph secret key
+#   PORTAL_API_KEY_DEV  Portal API key for dev environment
+#   PORTAL_API_KEY_QA   Portal API key for qa environment
+#   PORTAL_API_KEY_PROD Portal API key for prod environment
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string        # dev | qa | prod
+      image_tag:
+        required: true
+        type: string        # e.g.  dev-abc1234  |  qa-abc1234  |  latest
+    secrets:
+      K8S_CONFIG:
+        required: true
+      PATRONI_PASS:
+        required: true
+      CF_API_TOKEN:
+        required: true
+      S3_ACCESS_KEY:
+        required: true
+      S3_SECRET_KEY:
+        required: true
+      PORTAL_API_KEY_DEV:
+        required: false
+      PORTAL_API_KEY_QA:
+        required: false
+      PORTAL_API_KEY_PROD:
+        required: false
+
+jobs:
+  deploy:
+    name: Deploy → ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}  # links to GitHub Environments for audit trail
+
+    steps:
+    # ── 1. Setup kubectl ────────────────────────────────────────────────────
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v4
+
+    - name: Configure kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.K8S_CONFIG }}" | base64 -d > ~/.kube/config
+        chmod 600 ~/.kube/config
+
+    # ── 2. Resolve environment-specific values ───────────────────────────────
+    - name: Set environment variables
+      id: env_vars
+      run: |
+        case "${{ inputs.environment }}" in
+          dev)
+            echo "NAMESPACE=portal-dev"                                    >> "$GITHUB_ENV"
+            echo "HOST=portal-dev.aeisoftware.com"                         >> "$GITHUB_ENV"
+            echo "MANIFEST=portal/k8s-portal/portal-dev.yaml"              >> "$GITHUB_ENV"
+            echo "S3_BUCKET=odoo-templates-dev"                            >> "$GITHUB_ENV"
+            echo "PORTAL_API_KEY=${{ secrets.PORTAL_API_KEY_DEV }}"       >> "$GITHUB_ENV"
+            ;;
+          qa)
+            echo "NAMESPACE=portal-qa"                                     >> "$GITHUB_ENV"
+            echo "HOST=portal-qa.aeisoftware.com"                          >> "$GITHUB_ENV"
+            echo "MANIFEST=portal/k8s-portal/portal-qa.yaml"               >> "$GITHUB_ENV"
+            echo "S3_BUCKET=odoo-templates-qa"                             >> "$GITHUB_ENV"
+            echo "PORTAL_API_KEY=${{ secrets.PORTAL_API_KEY_QA }}"        >> "$GITHUB_ENV"
+            ;;
+          prod)
+            echo "NAMESPACE=portal-system"                                 >> "$GITHUB_ENV"
+            echo "HOST=portal.aeisoftware.com"                             >> "$GITHUB_ENV"
+            echo "MANIFEST=portal/k8s-portal/portal.yaml"                  >> "$GITHUB_ENV"
+            echo "S3_BUCKET=odoo-templates"                                >> "$GITHUB_ENV"
+            echo "PORTAL_API_KEY=${{ secrets.PORTAL_API_KEY_PROD }}"      >> "$GITHUB_ENV"
+            ;;
+          *) echo "Unknown environment: ${{ inputs.environment }}"; exit 1 ;;
+        esac
+
+    - name: Checkout (needed for manifests)
+      uses: actions/checkout@v4
+
+    # ── 3. Apply base manifests (idempotent) ────────────────────────────────
+    - name: Apply K8s manifests (namespace / SA / RBAC / service / ingress)
+      run: |
+        kubectl apply -f "$MANIFEST" --server-side --field-manager=github-actions
+
+    # ── 4. Patch the portal-env Secret with real credentials ────────────────
+    - name: Patch portal-env secret
+      run: |
+        kubectl create secret generic portal-env \
+          --namespace="$NAMESPACE" \
+          --from-literal=PORTAL_API_KEY="$PORTAL_API_KEY" \
+          --from-literal=PATRONI_HOST="patroni-db.kube-system.svc.cluster.local" \
+          --from-literal=PATRONI_PORT="5432" \
+          --from-literal=PATRONI_USER="odoo" \
+          --from-literal=PATRONI_PASS="${{ secrets.PATRONI_PASS }}" \
+          --from-literal=CF_API_TOKEN="${{ secrets.CF_API_TOKEN }}" \
+          --from-literal=CF_ACCOUNT_ID="2755b41b811dc9afc7396ed5d1e27644" \
+          --from-literal=CF_ZONE_ID="8a6fcaacd01aa1d8e544c85df5a88c8c" \
+          --from-literal=CF_TUNNEL_ID="670c6e18-748b-4399-8fa4-7c78f3a1d342" \
+          --from-literal=S3_ENDPOINT="http://10.40.1.240:7480" \
+          --from-literal=S3_ACCESS_KEY="${{ secrets.S3_ACCESS_KEY }}" \
+          --from-literal=S3_SECRET_KEY="${{ secrets.S3_SECRET_KEY }}" \
+          --from-literal=S3_BUCKET="$S3_BUCKET" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    # ── 5. Roll out new image ────────────────────────────────────────────────
+    - name: Update image tag
+      run: |
+        IMAGE="ghcr.io/${{ github.repository }}/saas-portal:${{ inputs.image_tag }}"
+        echo "Deploying $IMAGE to namespace $NAMESPACE"
+        kubectl set image deployment/saas-portal portal="$IMAGE" \
+          --namespace="$NAMESPACE"
+
+    - name: Wait for rollout
+      run: |
+        kubectl rollout status deployment/saas-portal \
+          --namespace="$NAMESPACE" \
+          --timeout=180s
+
+    # ── 6. Smoke test ────────────────────────────────────────────────────────
+    - name: Smoke test
+      run: |
+        sleep 5   # brief grace period for readiness probe
+        bash portal/tests/smoke_test.sh "https://$HOST" "$PORTAL_API_KEY"
+
+    # ── 7. Rollback on failure ───────────────────────────────────────────────
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "⚠️  Deployment failed — rolling back $NAMESPACE"
+        kubectl rollout undo deployment/saas-portal --namespace="$NAMESPACE"
+        kubectl rollout status deployment/saas-portal \
+          --namespace="$NAMESPACE" \
+          --timeout=120s
