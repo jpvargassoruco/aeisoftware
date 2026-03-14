@@ -302,7 +302,7 @@ async def _initialize_fresh_db(
     import psycopg2
     from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
 
-    internal_url = f"http://{name}-odoo-service.odoo-{name}.svc.cluster.local:8069"
+    internal_url = f"http://{name}-odoo-svc.odoo-{name}.svc.cluster.local:8069"
     print(f"[db-create] Starting fresh DB initialization for {name}")
 
     # Wait for Odoo to be reachable in nodb mode
