@@ -2,10 +2,9 @@ name: Test & QA Deploy — SaaS Portal
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Triggered on every pull_request to main that touches portal code.
-#  1. Builds the image locally (no push)
-#  2. Starts docker compose (portal + postgres)
-#  3. Runs smoke_test.sh against localhost
-#  4. On success, tags and pushes a qa-{sha} image and deploys to portal-qa
+#  Job 1 (test)          Build image locally, start container, run smoke tests
+#  Job 2 (push-qa-image) Build + push qa-{sha} image to GHCR
+#  Job 3 (deploy-qa)     Call reusable deploy-portal.yaml → portal-qa namespace
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -80,10 +79,10 @@ jobs:
         echo "Waiting for portal /health..."
         for i in {1..30}; do
           if curl -sf http://localhost:8000/health; then
-            echo "Portal is ready ✅"
+            echo "  Portal is ready ✅"
             break
           fi
-          echo "Attempt $i/30 — waiting..."
+          echo "  Attempt $i/30 — waiting 3s..."
           sleep 3
         done
 
@@ -96,11 +95,10 @@ jobs:
       if: failure()
       run: docker logs portal-test
 
-  # ── Job 2: Push qa image + deploy to portal-qa ─────────────────────────────
-  deploy-qa:
-    name: Deploy → QA
+  # ── Job 2: Build + push qa image ───────────────────────────────────────────
+  push-qa-image:
+    name: Push QA Image
     needs: test
-    if: success()
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,7 +115,9 @@ jobs:
 
     - name: Compute image tag
       id: tag
-      run: echo "image_tag=qa-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      run: |
+        SHORT_SHA="${GITHUB_SHA::7}"
+        echo "image_tag=qa-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -137,15 +137,18 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Deploy to QA namespace
-      uses: ./.github/workflows/deploy-portal.yaml
-      with:
-        environment: qa
-        image_tag: ${{ steps.tag.outputs.image_tag }}
-      secrets:
-        K8S_CONFIG: ${{ secrets.K8S_CONFIG }}
-        PATRONI_PASS: ${{ secrets.PATRONI_PASS }}
-        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-        S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
-        PORTAL_API_KEY_QA: ${{ secrets.PORTAL_API_KEY_QA }}
+  # ── Job 3: Deploy to portal-qa (reusable workflow at JOB level) ────────────
+  deploy-qa:
+    name: Deploy → QA
+    needs: push-qa-image
+    uses: ./.github/workflows/deploy-portal.yaml
+    with:
+      environment: qa
+      image_tag: ${{ needs.push-qa-image.outputs.image_tag }}
+    secrets:
+      K8S_CONFIG: ${{ secrets.K8S_CONFIG }}
+      PATRONI_PASS: ${{ secrets.PATRONI_PASS }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+      S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+      PORTAL_API_KEY_QA: ${{ secrets.PORTAL_API_KEY_QA }}
