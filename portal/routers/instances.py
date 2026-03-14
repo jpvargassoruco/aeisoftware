@@ -241,9 +241,9 @@ async def create_instance(body: InstanceCreate):
 
     _safe_create(core.create_namespace, build_namespace(body.name))
     _safe_create(core.create_namespaced_secret, ns,
-                 build_secret(body.name, body.db_password))
+                 build_secret(body.name, body.admin_passwd))
     _safe_create(core.create_namespaced_config_map, ns,
-                 build_configmap(body.name, body.domain, body.db_password,
+                 build_configmap(body.name, body.domain, body.admin_passwd,
                                 body.odoo_conf_overrides, body.addons_repos))
 
     for pvc in build_pvcs(body.name):
@@ -337,15 +337,30 @@ async def _initialize_fresh_db(
                 },
             )
             print(f"[db-create] Odoo create response: HTTP {r.status_code}")
-            if r.status_code not in (200, 302):
-                print(f"[db-create] WARNING: Unexpected status {r.status_code} for {name}")
     except Exception as e:
         print(f"[db-create] ERROR: DB create request failed: {e}")
         return
 
-    # Fix web.base.url
+    # Verify the database was actually created (Odoo returns 200 even on failure)
+    await asyncio.sleep(5)
     try:
-        await asyncio.sleep(5)
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS, dbname='postgres'
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (name,))
+        if not cur.fetchone():
+            print(f"[db-create] ERROR: Odoo returned HTTP 200 but database '{name}' was NOT created!")
+            print(f"[db-create] This usually means the master password (admin_passwd) is wrong.")
+            print(f"[db-create] Check that admin_passwd matches odoo.conf's admin_passwd setting.")
+            conn.close()
+            return
+        print(f"[db-create] Verified: database '{name}' exists in PostgreSQL")
+
+        # Fix web.base.url
+        conn.close()
         conn = psycopg2.connect(
             host=PATRONI_HOST, port=int(PATRONI_PORT),
             user=PATRONI_USER, password=PATRONI_PASS, dbname=name
@@ -359,7 +374,8 @@ async def _initialize_fresh_db(
         print(f"[db-create] Updated web.base.url to https://{domain} ({cur.rowcount} rows)")
         conn.close()
     except Exception as e:
-        print(f"[db-create] WARNING: Could not fix web.base.url: {e}")
+        print(f"[db-create] ERROR verifying/configuring DB: {e}")
+        return
 
     print(f"[db-create] Fresh DB init complete for {name} — {domain} is ready")
 
@@ -376,7 +392,7 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
     import psycopg2
     from k8s_utils.manifests import PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS
 
-    internal_url = f"http://{name}-odoo-service.odoo-{name}.svc.cluster.local:8069"
+    internal_url = f"http://{name}-odoo-svc.odoo-{name}.svc.cluster.local:8069"
     print(f"[restore] Starting background restore for {name} from {db_template}")
 
     # 1. Wait for Odoo to be reachable (up to 10 min, poll every 15s)
@@ -424,15 +440,29 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
                 files={"backup_file": (f"{name}.zip", io.BytesIO(zip_bytes), "application/zip")},
             )
             print(f"[restore] Odoo restore response: HTTP {r.status_code} — {r.text[:200]}")
-            if r.status_code not in (200, 302):
-                print(f"[restore] WARNING: Unexpected restore status for {name}")
     except Exception as e:
         print(f"[restore] ERROR: Restore request failed: {e}")
         return
 
-    # 4. Fix web.base.url so assets and redirects point to the correct domain
+    # 4. Verify the database was actually restored (Odoo returns 200 even on failure)
+    await asyncio.sleep(5)
     try:
-        await asyncio.sleep(5)  # brief pause for Odoo to activate the restored DB
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS, dbname='postgres'
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (name,))
+        if not cur.fetchone():
+            print(f"[restore] ERROR: Odoo returned HTTP 200 but database '{name}' was NOT restored!")
+            print(f"[restore] This usually means the master password (admin_passwd) is wrong.")
+            conn.close()
+            return
+        print(f"[restore] Verified: database '{name}' exists in PostgreSQL")
+
+        # Fix web.base.url
+        conn.close()
         conn = psycopg2.connect(
             host=PATRONI_HOST, port=int(PATRONI_PORT),
             user=PATRONI_USER, password=PATRONI_PASS, dbname=name
@@ -446,7 +476,8 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
         print(f"[restore] Updated web.base.url to https://{domain} ({cur.rowcount} rows)")
         conn.close()
     except Exception as e:
-        print(f"[restore] WARNING: Could not fix web.base.url: {e}")
+        print(f"[restore] ERROR verifying/configuring DB: {e}")
+        return
 
     print(f"[restore] Restore complete for {name} — {domain} is ready")
 
