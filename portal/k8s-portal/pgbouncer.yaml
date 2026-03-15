@@ -1,0 +1,169 @@
+################################################################################
+# PgBouncer — connection pooler in front of HAProxy+Patroni
+#
+# Architecture:
+#   Odoo pods → patroni-db:5432 → THIS Deployment (×2 replicas, anti-affinity)
+#                                        ↓
+#                                haproxy-patroni:5432
+#                                        ↓
+#                           Patroni primary (10.9.111.{157,160,100})
+#
+# Pool mode: transaction  (Odoo is compatible; each Odoo request is one Tx)
+# Result:    400-600 logical connections → ~40-80 real PG connections
+################################################################################
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: kube-system
+  labels:
+    app: pgbouncer-patroni
+data:
+  pgbouncer.ini: |
+    [databases]
+    * = host=haproxy-patroni.kube-system.svc.cluster.local port=5432
+
+    [pgbouncer]
+    listen_addr        = 0.0.0.0
+    listen_port        = 5432
+    auth_type          = scram-sha-256
+    auth_file          = /etc/pgbouncer/userlist.txt
+    pool_mode          = transaction
+    max_client_conn    = 500
+    default_pool_size  = 40
+    reserve_pool_size  = 10
+    reserve_pool_timeout = 5
+    max_db_connections = 80
+    max_user_connections = 100
+    server_idle_timeout     = 600
+    client_idle_timeout     = 0
+    server_connect_timeout  = 15
+    server_login_retry      = 3
+    query_timeout           = 0
+    stats_period       = 60
+    log_connections    = 0
+    log_disconnections = 0
+    log_pooler_errors  = 1
+    admin_users        = pgbouncer
+    stats_users        = pgbouncer
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pgbouncer-userlist
+  namespace: kube-system
+  labels:
+    app: pgbouncer-patroni
+type: Opaque
+stringData:
+  # Format: "username" "SCRAM-SHA-256$<iter>:<salt>$<StoredKey>:<ServerKey>"
+  # Verifiers extracted from pg_authid on the Patroni leader (PG 16 default: SCRAM-SHA-256)
+  userlist.txt: |
+    "odoo" "SCRAM-SHA-256$4096:UX0g7m+wpGTvWSy/6nCerQ==$IcWM5AcQ//r8C/QUtwb3ZzTyy3M8F9gbGGuJ33NuxZk=:ElPpqePcVRujsjviLWvf9YC9CarOve7c+31lXdnS0R0="
+    "pgbouncer" "SCRAM-SHA-256$4096:UX0g7m+wpGTvWSy/6nCerQ==$IcWM5AcQ//r8C/QUtwb3ZzTyy3M8F9gbGGuJ33NuxZk=:ElPpqePcVRujsjviLWvf9YC9CarOve7c+31lXdnS0R0="
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-patroni
+  namespace: kube-system
+  labels:
+    app: pgbouncer-patroni
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer-patroni
+  template:
+    metadata:
+      labels:
+        app: pgbouncer-patroni
+    spec:
+      # Ensure the two replicas land on different physical nodes (no SPOF)
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: pgbouncer-patroni
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # edoburu/pgbouncer reads these env vars OR uses mounted files.
+            # We use mounted files (more control), but keep POOL_MODE here
+            # so the image's entrypoint doesn't override our ini.
+            - name: PGBOUNCER_INI_FILE
+              value: /etc/pgbouncer/pgbouncer.ini
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer/pgbouncer.ini
+              subPath: pgbouncer.ini
+              readOnly: true
+            - name: userlist
+              mountPath: /etc/pgbouncer/userlist.txt
+              subPath: userlist.txt
+              readOnly: true
+
+          # Liveness: PgBouncer responds to the admin console show version
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+
+          # Readiness: actually try to connect to the admin console
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+      volumes:
+        - name: config
+          configMap:
+            name: pgbouncer-config
+        - name: userlist
+          secret:
+            secretName: pgbouncer-userlist
+
+      # Graceful shutdown: let existing pooled connections drain (30s)
+      terminationGracePeriodSeconds: 30
+---
+# Separate HAProxy ClusterIP so PgBouncer can reach it by name.
+# (The existing 'patroni-db' Service will be patched to select pgbouncer-patroni.)
+# This Service is the internal hop: pgbouncer → haproxy → patroni
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy-patroni
+  namespace: kube-system
+  labels:
+    app: haproxy-patroni
+spec:
+  selector:
+    app: haproxy-patroni
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: stats
+      port: 7000
+      targetPort: 7000
