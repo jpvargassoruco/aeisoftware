@@ -1,0 +1,67 @@
+name: Portal — Dev CI/CD
+
+# Triggers on every push to the `dev` branch that touches portal code.
+# Builds the image, pushes as :dev-latest, then rolling-deploys to portal-dev.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "portal/**"
+      - ".github/workflows/portal-dev.yml"
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/aeisoftware/saas-portal
+
+jobs:
+  build-deploy-dev:
+    name: Build & Deploy → portal-dev
+    runs-on: [self-hosted, k3s]   # uses the github-runner pod already in K3s
+
+    permissions:
+      contents: read
+      packages: write   # needed so GITHUB_TOKEN can push to GHCR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push :dev-latest
+        uses: docker/build-push-action@v5
+        with:
+          context: ./portal
+          push: true
+          tags: ${{ env.IMAGE }}:dev-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to portal-dev namespace
+        run: |
+          kubectl set image deployment/saas-portal \
+            portal=${{ env.IMAGE }}:dev-latest \
+            -n portal-dev
+          kubectl rollout status deployment/saas-portal \
+            -n portal-dev --timeout=120s
+
+      - name: Verify health
+        run: |
+          echo "Waiting for portal-dev to pass readiness..."
+          for i in $(seq 1 12); do
+            STATUS=$(kubectl get deployment saas-portal -n portal-dev \
+              -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+            [ "$STATUS" -ge 1 ] && echo "✅ portal-dev is ready" && exit 0
+            echo "  attempt $i/12 — ready replicas: ${STATUS:-0}"
+            sleep 10
+          done
+          echo "❌ portal-dev did not become ready in time"
+          exit 1
