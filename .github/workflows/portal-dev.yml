@@ -1,7 +1,12 @@
 name: Portal — Dev CI/CD
 
 # Triggers on every push to the `dev` branch that touches portal code.
-# Builds the image, pushes as :dev-latest, then rolling-deploys to portal-dev.
+# Job 1 (build):  runs on ubuntu-latest  — builds + pushes :dev-latest to GHCR.
+# Job 2 (deploy): runs on self-hosted k3s — rolls out the new image to portal-dev.
+#
+# NOTE: Build and deploy MUST be separate jobs because:
+#   - ubuntu-latest has Docker daemon  → can build images
+#   - self-hosted k3s runner has kubectl → can deploy to cluster, but NO Docker daemon
 
 on:
   push:
@@ -14,13 +19,14 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/aeisoftware/saas-portal
 
 jobs:
-  build-deploy-dev:
-    name: Build & Deploy → portal-dev
-    runs-on: [self-hosted, k3s]   # uses the github-runner pod already in K3s
+  # ── Job 1: Build + push image (requires Docker) ────────────────────────────
+  build:
+    name: Build & Push → :dev-latest
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      packages: write   # needed so GITHUB_TOKEN can push to GHCR
+      packages: write   # push to GHCR
 
     steps:
       - name: Checkout
@@ -45,7 +51,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy to portal-dev namespace
+  # ── Job 2: Deploy to portal-dev (requires kubectl inside K3s) ──────────────
+  deploy:
+    name: Deploy → portal-dev
+    needs: build
+    runs-on: [self-hosted, k3s]
+
+    steps:
+      - name: Roll out new image
         run: |
           kubectl set image deployment/saas-portal \
             portal=${{ env.IMAGE }}:dev-latest \
