@@ -201,6 +201,9 @@ host all         all         127.0.0.1/32  trust
 # K3s access (added via Patroni DCS PATCH)
 host all         all         10.9.111.0/24 md5
 host all         all         10.42.0.0/16  md5
+
+# Per-instance roles connect via the same K3s/pod subnets
+# Each instance uses odoo_{name} role (auto-created by portal)
 ```
 
 ### 4.3 Administration Commands
@@ -254,7 +257,7 @@ curl -H "X-API-Key: aei-saas-8700533d55e0ac70ed1385bc" https://portal.aeisoftwar
 
 | Method | Endpoint | Description |
 |:---|:---|:---|
-| `GET` | `/api/instances` | List all instances with pod status |
+| `GET` | `/api/instances` | List instances (paginated: `?page=1&page_size=50`) |
 | `POST` | `/api/instances` | Create new Odoo instance |
 | `GET` | `/api/instances/{name}` | Get instance details |
 | `DELETE` | `/api/instances/{name}` | Delete instance + Cloudflare cleanup |
@@ -291,8 +294,8 @@ curl -H "X-API-Key: aei-saas-8700533d55e0ac70ed1385bc" https://portal.aeisoftwar
 [options]
 db_host = patroni-db.kube-system.svc.cluster.local
 db_port = 5432
-db_user = odoo
-db_password = Ribentek2026+
+db_user = odoo_acme
+db_password = <random-32-char-password>
 db_name = False
 db_filter = ^acme$
 admin_passwd = master_password_for_admin_panel
@@ -307,6 +310,9 @@ proxy_mode = True
 | Resource | Name | Namespace |
 |:---|:---|:---|
 | Namespace | `odoo-{name}` | — |
+| LimitRange | `{name}-limits` | `odoo-{name}` |
+| ResourceQuota | `{name}-quota` | `odoo-{name}` |
+| PodDisruptionBudget | `{name}-pdb` | `odoo-{name}` |
 | Secret | `{name}-db-secret` | `odoo-{name}` |
 | ConfigMap | `{name}-odoo-conf` | `odoo-{name}` |
 | PVC (data) | `{name}-data` | `odoo-{name}` |
@@ -316,7 +322,7 @@ proxy_mode = True
 | Ingress | `{name}-odoo-ingress` | `odoo-{name}` |
 
 ### 5.6 Init Containers
-1. **setup-db** (`postgres:16-alpine`): Creates the per-instance PostgreSQL database if it doesn't exist. Optionally restores from a DB template via S3.
+1. **setup-db** (`postgres:16-alpine`): Creates the per-instance PostgreSQL database if it doesn't exist. Optionally restores from a DB template via S3. After DB init, the portal transfers ownership to the per-instance PG role.
 2. **sync-addons** (`alpine/git`): Clones/pulls configured git repos into `/mnt/extra-addons/{repo-name}/`.
 
 ### 5.7 Portal K8s Deployment

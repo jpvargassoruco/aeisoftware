@@ -130,12 +130,15 @@ sequenceDiagram
     participant CF as Cloudflare
 
     User->>Portal: POST /api/instances
+    Portal->>PG: Create per-instance PG role (random password)
     Portal->>K8s: Create Namespace (odoo-{name})
-    Portal->>K8s: Create Secret (DB credentials)
-    Portal->>K8s: Create ConfigMap (odoo.conf)
+    Portal->>K8s: Create LimitRange + ResourceQuota + PDB
+    Portal->>K8s: Create Secret (per-instance DB credentials)
+    Portal->>K8s: Create ConfigMap (odoo.conf with per-instance db_user)
     Portal->>K8s: Create PVCs (data + addons)
     Portal->>K8s: Create Deployment (initContainers + Odoo)
     K8s->>PG: initContainer: setup-db creates database
+    Portal->>PG: Transfer DB ownership to per-instance role
     K8s->>K8s: initContainer: sync-addons clones git repos
     Portal->>K8s: Create Service + Ingress
     Portal->>CF: Create DNS CNAME + Tunnel route
@@ -149,7 +152,9 @@ sequenceDiagram
 | Layer | Mechanism |
 |:---|:---|
 | **Network** | Separate K8s namespace per tenant |
-| **Database** | Per-instance database name + `db_filter = ^{name}$` |
+| **Database** | Per-instance PG role + database; `db_filter = ^{name}$` |
+| **Resources** | LimitRange (per-container caps) + ResourceQuota (namespace ceiling) |
+| **Availability** | PodDisruptionBudget (minAvailable: 1) per namespace |
 | **Storage** | Per-instance PVCs (CephFS for addons, RBD for data) |
 | **Config** | Per-instance ConfigMap (`odoo.conf`) and Secret |
 | **DNS** | Per-instance Cloudflare route (`{name}.aeisoftware.com`) |
@@ -162,8 +167,10 @@ sequenceDiagram
 - **Portal Access:** Cloudflare Access (MFA) + API key authentication
 - **Database Master Password:** Set per-instance via `admin_passwd` in `odoo.conf`
 - **Database Manager:** `list_db = True` (protected by `admin_passwd`)
-- **PostgreSQL Auth:** md5 password authentication from K3s subnet (pg_hba.conf)
-- **Secrets Management:** K8s Secrets for all credentials
+- **PostgreSQL Auth:** Per-instance PG roles with random 32-char passwords; md5 from K3s subnet
+- **DB Ownership:** Each instance's PG role owns its database and all objects (no shared superuser at runtime)
+- **Resource Limits:** LimitRange caps individual containers; ResourceQuota caps namespace totals
+- **Secrets Management:** K8s Secrets for all credentials (per-instance db_user/db_password)
 - **CI/CD:** GitHub Actions with GHCR credentials for container registry
 - **SSH:** Key-based authentication only (`~/.ssh/id_rsa`)
 
