@@ -1,7 +1,8 @@
 name: Portal — Prod CI/CD
 
 # Triggers on merge to `main` (after a PR from dev is approved and merged).
-# Builds :latest and deploys to portal-system (production).
+# Job 1 (build):  runs on ubuntu-latest — builds + pushes :latest to GHCR.
+# Job 2 (deploy): runs on ubuntu-latest — deploys to portal-system via CF Tunnel.
 
 on:
   push:
@@ -14,9 +15,10 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/aeisoftware/saas-portal
 
 jobs:
-  build-deploy-prod:
-    name: Build & Deploy → portal-system (prod)
-    runs-on: [self-hosted, k3s]
+  # ── Job 1: Build + push image ──────────────────────────────────────────────
+  build:
+    name: Build & Push → :latest
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
@@ -46,6 +48,22 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Job 2: Deploy to portal-system (via CF Tunnel → K3s API) ───────────────
+  deploy:
+    name: Deploy → portal-system (prod)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.K8S_CONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
 
       - name: Deploy to portal-system namespace
         run: |

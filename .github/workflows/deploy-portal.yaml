@@ -45,8 +45,8 @@ on:
 jobs:
   deploy:
     name: Deploy → ${{ inputs.environment }}
-    # Self-hosted runner inside K3s cluster — can reach private API at 10.40.2.171:6443
-    runs-on: [self-hosted, k3s]
+    # Runs on GitHub-hosted runner — reaches K3s API via Cloudflare Tunnel
+    runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}  # links to GitHub Environments for audit trail
 
     steps:
@@ -141,10 +141,10 @@ jobs:
         # This guarantees the smoke test uses the exact key that was deployed.
         ACTUAL_KEY=$(kubectl get secret portal-env -n "$NAMESPACE" \
           -o jsonpath='{.data.PORTAL_API_KEY}' | base64 -d)
-        # Use in-cluster service DNS — runner runs inside K3s
-        CLUSTER_URL="http://saas-portal-svc.${NAMESPACE}.svc.cluster.local:8000"
-        echo "Testing in-cluster URL: $CLUSTER_URL  (public: https://$HOST)"
-        bash portal/tests/smoke_test.sh "$CLUSTER_URL" "$ACTUAL_KEY"
+        # Use public URL via Cloudflare Tunnel (runner is external)
+        PUBLIC_URL="https://$HOST"
+        echo "Testing public URL: $PUBLIC_URL"
+        bash portal/tests/smoke_test.sh "$PUBLIC_URL" "$ACTUAL_KEY"
 
     # ── 7. Rollback on failure ───────────────────────────────────────────────
     - name: Rollback on failure

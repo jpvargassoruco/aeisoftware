@@ -1,12 +1,8 @@
 name: Portal — Dev CI/CD
 
 # Triggers on every push to the `dev` branch that touches portal code.
-# Job 1 (build):  runs on ubuntu-latest  — builds + pushes :dev-latest to GHCR.
-# Job 2 (deploy): runs on self-hosted k3s — rolls out the new image to portal-dev.
-#
-# NOTE: Build and deploy MUST be separate jobs because:
-#   - ubuntu-latest has Docker daemon  → can build images
-#   - self-hosted k3s runner has kubectl → can deploy to cluster, but NO Docker daemon
+# Job 1 (build):  runs on ubuntu-latest — builds + pushes :dev-latest to GHCR.
+# Job 2 (deploy): runs on ubuntu-latest — rolls out the new image via CF Tunnel.
 
 on:
   push:
@@ -51,16 +47,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Job 2: Deploy to portal-dev (requires kubectl inside K3s) ──────────────
+  # ── Job 2: Deploy to portal-dev (via CF Tunnel → K3s API) ──────────────────
   deploy:
     name: Deploy → portal-dev
     needs: build
-    runs-on: [self-hosted, k3s]
+    runs-on: ubuntu-latest
 
     steps:
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.K8S_CONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
       - name: Roll out new image
-        env:
-          KUBECONFIG: ""   # force in-cluster config via ServiceAccount token
         run: |
           kubectl set image deployment/saas-portal \
             portal=${{ env.IMAGE }}:dev-latest \
@@ -69,8 +72,6 @@ jobs:
             -n portal-dev --timeout=120s
 
       - name: Verify health
-        env:
-          KUBECONFIG: ""   # force in-cluster config via ServiceAccount token
         run: |
           echo "Waiting for portal-dev to pass readiness..."
           for i in $(seq 1 12); do
@@ -82,5 +83,3 @@ jobs:
           done
           echo "❌ portal-dev did not become ready in time"
           exit 1
-
- 
