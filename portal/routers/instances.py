@@ -150,97 +150,22 @@ def _repos_annotation(repos: List[AddonRepo]) -> str:
 
 
 async def _configure_cloudflare(name: str, domain: str):
-    """Add Cloudflare DNS CNAME + Tunnel ingress route (idempotent)."""
-    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID, CF_ACCOUNT_ID]):
-        print("[cf] Skipping: CF credentials not set")
-        return
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    tunnel_domain = f"{CF_TUNNEL_ID}.cfargotunnel.com"
-    timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
-    async with httpx.AsyncClient(timeout=timeout) as http:
-        # 1. Upsert DNS record (delete existing, then create)
-        existing = await http.get(
-            f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
-            headers=headers,
-        )
-        # Delete existing records concurrently
-        records = existing.json().get("result", [])
-        if records:
-            await asyncio.gather(*[
-                http.delete(
-                    f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records/{rec['id']}",
-                    headers=headers,
-                )
-                for rec in records
-            ])
-        dns_r = await http.post(
-            f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records",
-            headers=headers,
-            json={"type": "CNAME", "name": domain, "content": tunnel_domain,
-                  "proxied": True, "ttl": 1},
-        )
-        print(f"[cf] DNS upsert {domain}: {dns_r.status_code}")
-
-        # 2. Update tunnel ingress
-        r = await http.get(
-            f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
-            headers=headers,
-        )
-        current = r.json().get("result", {}).get("config", {})
-        ingress = current.get("ingress", [{"service": "http_status:404"}])
-        ingress_filtered = [i for i in ingress if i.get("hostname") != domain]
-        ingress_no_catch = [i for i in ingress_filtered if i.get("hostname")]
-        catch_all       = [i for i in ingress_filtered if not i.get("hostname")]
-        new_route = {"hostname": domain, "service": "http://traefik.kube-system.svc.cluster.local:80"}
-        tunnel_r = await http.put(
-            f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
-            headers=headers,
-            json={"config": {"ingress": ingress_no_catch + [new_route] + catch_all}},
-        )
-        print(f"[cf] Tunnel ingress add {domain}: {tunnel_r.status_code}")
+    # ── OPTIMIZATION (Priority #2 — 200-instance plan) ──────────────────────
+    # Per-instance DNS CNAME + tunnel ingress calls removed.
+    # A single wildcard rule (*.aeisoftware.com → Traefik) now covers all
+    # subdomains. Run setup_wildcard_tunnel.py once to provision it.
+    # The Ingress object created above (build_ingress) is all that's needed;
+    # Traefik routes by Host header to the correct namespace.
+    print(f"[cf] Wildcard tunnel active — no per-instance config needed for {domain}")
 
 
 async def _remove_cloudflare(domain: str):
-    """Remove Cloudflare DNS CNAME + Tunnel ingress route for this domain."""
-    if not all([CF_API_TOKEN, CF_ZONE_ID, CF_TUNNEL_ID, CF_ACCOUNT_ID]):
-        print("[cf] Skipping remove: CF credentials not set")
-        return
-    headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
-    async with httpx.AsyncClient(timeout=timeout) as http:
-        # 1. Delete DNS records concurrently
-        r = await http.get(
-            f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={domain}",
-            headers=headers,
-        )
-        dns_records = r.json().get("result", [])
-        print(f"[cf] Found {len(dns_records)} DNS record(s) for {domain}")
-        if dns_records:
-            await asyncio.gather(*[
-                http.delete(
-                    f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records/{rec['id']}",
-                    headers=headers,
-                )
-                for rec in dns_records
-            ])
-            print(f"[cf] Deleted {len(dns_records)} DNS record(s)")
-
-        # 2. Remove from tunnel ingress
-        r2 = await http.get(
-            f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
-            headers=headers,
-        )
-        current = r2.json().get("result", {}).get("config", {})
-        all_ingress = current.get("ingress", [])
-        filtered   = [i for i in all_ingress if i.get("hostname") != domain]
-        removed    = len(all_ingress) - len(filtered)
-        print(f"[cf] Removing {removed} tunnel route(s) for {domain}")
-        tunnel_r = await http.put(
-            f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
-            headers=headers,
-            json={"config": {"ingress": filtered}},
-        )
-        print(f"[cf] Tunnel ingress update: {tunnel_r.status_code} — {tunnel_r.text[:120]}")
+    # ── OPTIMIZATION (Priority #2 — 200-instance plan) ──────────────────────
+    # Per-instance tunnel route removal is a no-op with the wildcard setup.
+    # The wildcard *.aeisoftware.com route stays; Traefik Ingress deletion
+    # (done above in the delete endpoint) is sufficient — 404s for the
+    # deleted subdomain are handled by the wildcard catch-all.
+    print(f"[cf] Wildcard tunnel active — no per-instance cleanup needed for {domain}")
 
 
 # ─── Create ────────────────────────────────────────────────────────────────────
