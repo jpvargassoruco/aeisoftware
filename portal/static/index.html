@@ -451,8 +451,9 @@ async function refreshAll() {
 async function loadInstances() {
   const el = document.getElementById('instances-list');
   try {
-    const instances = await api('GET', '/instances');
-    document.getElementById('stat-total').textContent   = instances.length;
+    const resp = await api('GET', '/instances');
+    const instances = resp.items || resp;  // backwards-compat with array
+    document.getElementById('stat-total').textContent   = resp.total != null ? resp.total : instances.length;
     document.getElementById('stat-running').textContent = instances.filter(i => i.saas_status === 'ready' && i.pod_status === 'Running').length;
     if (!instances.length) {
       el.innerHTML = '<div class="empty-state"><div class="icon">🚀</div><div>No instances yet. Create your first one!</div></div>';

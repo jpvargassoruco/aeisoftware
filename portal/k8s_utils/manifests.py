@@ -34,7 +34,15 @@ def build_namespace(name: str) -> dict:
     }
 
 
-def build_secret(name: str, db_pass: str) -> dict:
+def build_secret(name: str, db_pass: str,
+                 instance_db_user: str | None = None,
+                 instance_db_pass: str | None = None) -> dict:
+    """Build K8s Secret with DB credentials.
+
+    If ``instance_db_user``/``instance_db_pass`` are provided, they are used
+    as per-instance PostgreSQL credentials (security isolation).  Otherwise
+    falls back to the shared PATRONI_USER/PASS (legacy behaviour).
+    """
     import base64
     def b64(s): return base64.b64encode(s.encode()).decode()
     return {
@@ -42,28 +50,28 @@ def build_secret(name: str, db_pass: str) -> dict:
         "metadata": {"name": f"{name}-db-secret", "namespace": f"odoo-{name}"},
         "type": "Opaque",
         "data": {
-            # Isolation is achieved via per-instance DATABASE + db_filter in odoo.conf.
             "db_host":     b64(PATRONI_HOST),
             "db_port":     b64(PATRONI_PORT),
-            "db_user":     b64(PATRONI_USER),   # admin odoo user, allowed by pg_hba
-            "db_password": b64(PATRONI_PASS),   # admin odoo password
-            "admin_passwd": b64(db_pass),        # Odoo master password (admin_passwd)
+            "db_user":     b64(instance_db_user or PATRONI_USER),
+            "db_password": b64(instance_db_pass or PATRONI_PASS),
+            "admin_passwd": b64(db_pass),
         },
     }
 
 
 def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
-                    addons_repos=None) -> dict:
+                    addons_repos=None,
+                    instance_db_user: str | None = None,
+                    instance_db_pass: str | None = None) -> dict:
+    """Build odoo.conf ConfigMap.
+
+    Uses per-instance ``instance_db_user``/``instance_db_pass`` when
+    provided, otherwise falls back to the shared PATRONI_USER/PASS.
     """
-    Build odoo.conf ConfigMap.
-    db_filter = {name} allows clients to see all databases containing
-    the instance name (e.g. test19, test19-backup, test19-sales).
-    No db_name set — Odoo uses db_filter to discover databases.
-    admin_passwd is set from db_pass so the database manager has a
-    fixed, known master password (prevents Odoo from generating random ones).
-    """
+    db_user = instance_db_user or PATRONI_USER
+    db_password = instance_db_pass or PATRONI_PASS
     defaults = {
-        "workers": 2, "max_cron_threads": 1, "gevent_port": 8072,
+        "workers": 1, "max_cron_threads": 1, "gevent_port": 8072,
         "limit_memory_hard": 2684354560, "limit_memory_soft": 2147483648,
         "limit_request": 8192, "limit_time_cpu": 1800, "limit_time_real": 3600,
     }
@@ -80,8 +88,8 @@ def build_configmap(name: str, domain: str, db_pass: str, overrides: dict,
     conf = f"""[options]
 db_host = {PATRONI_HOST}
 db_port = {PATRONI_PORT}
-db_user = {PATRONI_USER}
-db_password = {PATRONI_PASS}
+db_user = {db_user}
+db_password = {db_password}
 admin_passwd = {db_pass}
 dbfilter = ^{name}$
 list_db = True
@@ -144,6 +152,8 @@ def build_deployment(
     #   • ZIP restore    → POST /web/database/restore
     # Odoo starts in "no database" (nodb) mode — /web/health returns 200
     # until the database is created by the background task.
+    # NOTE: Uses shared PATRONI_USER for the connectivity check (the per-instance
+    # role may not have CONNECT on the 'postgres' database).
     db_setup_script = f"""#!/bin/sh
 set -e
 echo "[init] Verifying Patroni connectivity..."
@@ -242,8 +252,8 @@ echo "[init] {repo_name} ready."
                             "initialDelaySeconds": 60, "periodSeconds": 10, "failureThreshold": 30,
                         },
                         "resources": {
-                            "requests": {"cpu": "200m", "memory": "512Mi"},
-                            "limits":   {"cpu": "2",    "memory": "2Gi"},
+                            "requests": {"cpu": "50m",  "memory": "256Mi"},
+                            "limits":   {"cpu": "500m", "memory": "1Gi"},
                         },
                     }],
                     "volumes": [
@@ -301,5 +311,54 @@ def build_ingress(name: str, domain: str) -> dict:
                      "backend": {"service": {"name": f"{name}-odoo-svc", "port": {"number": 8069}}}},
                 ]},
             }],
+        },
+    }
+
+
+def build_limitrange(name: str) -> dict:
+    """Default container resource limits for the instance namespace.
+
+    Prevents a single pod from consuming an entire node.
+    """
+    return {
+        "apiVersion": "v1", "kind": "LimitRange",
+        "metadata": {"name": "default-limits", "namespace": f"odoo-{name}"},
+        "spec": {"limits": [{
+            "type": "Container",
+            "default":        {"cpu": "500m", "memory": "1Gi"},
+            "defaultRequest": {"cpu": "50m",  "memory": "256Mi"},
+            "max":            {"cpu": "1",    "memory": "2Gi"},
+        }]},
+    }
+
+
+def build_resourcequota(name: str) -> dict:
+    """Hard cap on total resources inside the instance namespace."""
+    return {
+        "apiVersion": "v1", "kind": "ResourceQuota",
+        "metadata": {"name": "instance-quota", "namespace": f"odoo-{name}"},
+        "spec": {"hard": {
+            "requests.cpu":    "500m",
+            "requests.memory": "1Gi",
+            "limits.cpu":      "1",
+            "limits.memory":   "2Gi",
+            "pods":            "4",
+        }},
+    }
+
+
+def build_pdb(name: str) -> dict:
+    """PodDisruptionBudget — keeps at least 0 pods during node drain.
+
+    With replicas=1 we can't set minAvailable=1 (drain would be blocked).
+    Instead we set maxUnavailable=1 so drains proceed one pod at a time
+    across the cluster.
+    """
+    return {
+        "apiVersion": "policy/v1", "kind": "PodDisruptionBudget",
+        "metadata": {"name": f"{name}-pdb", "namespace": f"odoo-{name}"},
+        "spec": {
+            "maxUnavailable": 1,
+            "selector": {"matchLabels": {"app": "odoo", "client": name}},
         },
     }

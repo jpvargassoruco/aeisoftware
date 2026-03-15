@@ -14,13 +14,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
-import httpx, os, re, asyncio, io, json, datetime, tempfile, psycopg2
+import httpx, os, re, asyncio, io, json, datetime, tempfile, psycopg2, secrets
 from psycopg2 import sql
 import boto3
 from botocore.client import Config
 from k8s_utils.manifests import (
     build_namespace, build_secret, build_configmap,
     build_pvcs, build_deployment, build_service, build_ingress,
+    build_limitrange, build_resourcequota, build_pdb,
     SUPPORTED_VERSIONS, CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID, CF_TUNNEL_ID,
     S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET,
     PATRONI_HOST, PATRONI_PORT, PATRONI_USER, PATRONI_PASS,
@@ -168,6 +169,92 @@ async def _remove_cloudflare(domain: str):
     print(f"[cf] Wildcard tunnel active — no per-instance cleanup needed for {domain}")
 
 
+def _create_pg_user(name: str) -> tuple[str, str]:
+    """Create a per-instance PostgreSQL role.
+
+    Returns (db_user, db_password).  The role is granted LOGIN, NOSUPERUSER,
+    CREATEDB (so Odoo can create migration temp-DBs if needed), and NOREPLICATION.
+    On collision (role already exists) the password is simply reset.
+    """
+    db_user = name.replace("-", "_")       # PG identifiers can't have hyphens
+    db_password = secrets.token_urlsafe(24) # 32-char URL-safe password
+    try:
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS,
+            dbname="postgres", connect_timeout=10,
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        # Check if the role already exists
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (db_user,))
+        if cur.fetchone():
+            cur.execute(
+                sql.SQL("ALTER ROLE {} WITH PASSWORD %s").format(sql.Identifier(db_user)),
+                (db_password,),
+            )
+            print(f"[pg-user] Role '{db_user}' already exists — password reset")
+        else:
+            cur.execute(
+                sql.SQL(
+                    "CREATE ROLE {} LOGIN NOSUPERUSER CREATEDB NOREPLICATION PASSWORD %s"
+                ).format(sql.Identifier(db_user)),
+                (db_password,),
+            )
+            print(f"[pg-user] Created PG role: {db_user}")
+        conn.close()
+    except Exception as e:
+        print(f"[pg-user] ERROR creating PG role for {name}: {e}")
+        raise
+    return db_user, db_password
+
+
+def _transfer_db_ownership(name: str, db_user: str):
+    """Transfer ownership of database ``name`` to ``db_user``.
+
+    Also grants usage/create on the public schema and reassigns owned objects
+    inside the database so the per-instance role can ALTER tables during
+    Odoo module upgrades.
+    """
+    try:
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS,
+            dbname="postgres", connect_timeout=10,
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(
+            sql.SQL("ALTER DATABASE {} OWNER TO {}").format(
+                sql.Identifier(name), sql.Identifier(db_user)
+            )
+        )
+        conn.close()
+
+        # Inside the target DB: reassign objects + ensure schema perms
+        conn = psycopg2.connect(
+            host=PATRONI_HOST, port=int(PATRONI_PORT),
+            user=PATRONI_USER, password=PATRONI_PASS,
+            dbname=name, connect_timeout=10,
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(
+            sql.SQL("REASSIGN OWNED BY {} TO {}").format(
+                sql.Identifier(PATRONI_USER), sql.Identifier(db_user)
+            )
+        )
+        cur.execute(
+            sql.SQL("GRANT ALL ON SCHEMA public TO {}").format(
+                sql.Identifier(db_user)
+            )
+        )
+        conn.close()
+        print(f"[pg-user] Transferred DB '{name}' ownership to '{db_user}'")
+    except Exception as e:
+        print(f"[pg-user] WARNING: ownership transfer failed for {name}: {e}")
+
+
 # ─── Create ────────────────────────────────────────────────────────────────────
 
 @router.post("", status_code=201)
@@ -199,11 +286,17 @@ async def create_instance(body: InstanceCreate):
                 )
 
     _safe_create(core.create_namespace, build_namespace(body.name))
+
+    # ── Per-instance PostgreSQL role ─────────────────────────────────────────
+    instance_db_user, instance_db_pass = _create_pg_user(body.name)
+
     _safe_create(core.create_namespaced_secret, ns,
-                 build_secret(body.name, body.admin_passwd))
+                 build_secret(body.name, body.admin_passwd,
+                              instance_db_user, instance_db_pass))
     _safe_create(core.create_namespaced_config_map, ns,
                  build_configmap(body.name, body.domain, body.admin_passwd,
-                                body.odoo_conf_overrides, body.addons_repos))
+                                body.odoo_conf_overrides, body.addons_repos,
+                                instance_db_user, instance_db_pass))
 
     for pvc in build_pvcs(body.name):
         _safe_create(core.create_namespaced_persistent_volume_claim, ns, pvc)
@@ -214,6 +307,13 @@ async def create_instance(body: InstanceCreate):
     _safe_create(apps.create_namespaced_deployment, ns, deployment)
     _safe_create(core.create_namespaced_service, ns, build_service(body.name))
     _safe_create(net.create_namespaced_ingress, ns, build_ingress(body.name, body.domain))
+
+    # ── Namespace guardrails ─────────────────────────────────────────────────
+    _safe_create(core.create_namespaced_limit_range, ns, build_limitrange(body.name))
+    _safe_create(core.create_namespaced_resource_quota, ns, build_resourcequota(body.name))
+    from kubernetes.client import PolicyV1Api
+    policy = PolicyV1Api()
+    _safe_create(policy.create_namespaced_pod_disruption_budget, ns, build_pdb(body.name))
 
     cf_warning = None
     try:
@@ -229,6 +329,7 @@ async def create_instance(body: InstanceCreate):
             domain=body.domain,
             db_template=body.db_template,
             admin_passwd=body.admin_passwd,
+            instance_db_user=instance_db_user,
         ))
     else:
         asyncio.create_task(_initialize_fresh_db(
@@ -238,6 +339,7 @@ async def create_instance(body: InstanceCreate):
             admin_email=body.admin_email,
             admin_password=body.admin_password,
             lang=body.lang,
+            instance_db_user=instance_db_user,
         ))
 
     return {"name": body.name, "domain": body.domain,
@@ -246,24 +348,13 @@ async def create_instance(body: InstanceCreate):
 
 
 def _restart_odoo_pod(name: str, core=None, apps=None):
-    """Restart Odoo deployment + patch ConfigMap (list_db=False) + set status=ready.
+    """Restart Odoo deployment + set status=ready.
 
     Accepts optional pre-existing K8s clients to avoid singleton re-lookup.
     """
     if core is None or apps is None:
         core, apps, _ = _k8s()
     ns = f"odoo-{name}"
-
-    # Disable database manager after provisioning
-    try:
-        cm = core.read_namespaced_config_map(f"{name}-odoo-conf", ns)
-        conf = cm.data.get("odoo.conf", "")
-        if "list_db = True" in conf:
-            cm.data["odoo.conf"] = conf.replace("list_db = True", "list_db = False")
-            core.patch_namespaced_config_map(f"{name}-odoo-conf", ns, {"data": cm.data})
-            print(f"[portal] Patched {name} ConfigMap: list_db = False")
-    except Exception as e:
-        print(f"[portal] WARNING: Could not patch ConfigMap for {name}: {e}")
 
     # Restart deployment and mark as ready
     patch = {"spec": {"template": {"metadata": {"annotations":
@@ -278,7 +369,8 @@ def _restart_odoo_pod(name: str, core=None, apps=None):
 
 async def _initialize_fresh_db(
     name: str, domain: str, admin_passwd: str,
-    admin_email: str, admin_password: str, lang: str = "en_US"
+    admin_email: str, admin_password: str, lang: str = "en_US",
+    instance_db_user: str | None = None,
 ):
     """Background task: initialize a fresh Odoo database via /web/database/create."""
     internal_url = f"http://{name}-odoo-svc.odoo-{name}.svc.cluster.local:8069"
@@ -354,11 +446,16 @@ async def _initialize_fresh_db(
         print(f"[db-create] ERROR verifying/configuring DB: {e}")
         return
 
+    # Transfer DB ownership to per-instance PG role
+    if instance_db_user:
+        _transfer_db_ownership(name, instance_db_user)
+
     _restart_odoo_pod(name)
     print(f"[db-create] Fresh DB init complete for {name} — {domain} is ready")
 
 
-async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_passwd: str):
+async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_passwd: str,
+                            instance_db_user: str | None = None):
     """Background task: restore database via Odoo's /web/database/restore.
 
     OPTIMIZATION: Uses tempfile for ZIP instead of loading entirely into RAM.
@@ -454,6 +551,10 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
     except Exception as e:
         print(f"[restore] ERROR verifying/configuring DB: {e}")
 
+    # Transfer DB ownership to per-instance PG role
+    if instance_db_user:
+        _transfer_db_ownership(name, instance_db_user)
+
     _restart_odoo_pod(name)
     print(f"[restore] Restore complete for {name} — {domain} is ready")
 
@@ -461,12 +562,14 @@ async def _restore_via_odoo(name: str, domain: str, db_template: str, admin_pass
 # ─── List ──────────────────────────────────────────────────────────────────────
 
 @router.get("")
-async def list_instances():
-    """List all SaaS instances.
+async def list_instances(
+    page: int = 1,
+    page_size: int = 50,
+):
+    """List all SaaS instances (paginated).
 
-    OPTIMIZATION: Uses 2 cluster-wide API calls instead of O(N) per-namespace calls.
-    Original: 1 list_namespace + N×list_namespaced_pod + N×read_namespaced_deployment = 2N+1 calls
-    Optimized: 1 list_namespace + 1 list_pod_all + 1 list_deploy_all = 3 calls (constant)
+    OPTIMIZATION: Uses 3 cluster-wide API calls instead of O(N) per-namespace calls.
+    Pagination defaults to 50 items per page to keep response times low at scale.
     """
     core, apps, _ = _k8s()
     namespaces = core.list_namespace(label_selector="managed-by=saas-portal")
@@ -478,7 +581,7 @@ async def list_instances():
             managed_ns[ns.metadata.name] = ns.metadata.name.removeprefix("odoo-")
 
     if not managed_ns:
-        return []
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
     # 2 cluster-wide calls instead of 2×N per-namespace calls
     all_pods = core.list_pod_for_all_namespaces(label_selector="app=odoo")
@@ -498,8 +601,17 @@ async def list_instances():
         if ns_name in managed_ns:
             deploys_by_ns[ns_name] = dep
 
+    # Sort for stable pagination
+    sorted_ns = sorted(managed_ns.items(), key=lambda x: x[1])
+    total = len(sorted_ns)
+
+    # Paginate
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_ns = sorted_ns[start:end]
+
     result = []
-    for ns_name, client_name in managed_ns.items():
+    for ns_name, client_name in page_ns:
         # Pod info
         pod = pods_by_ns.get(ns_name)
         pod_status = "unknown"
@@ -537,7 +649,7 @@ async def list_instances():
             "db_template": annotations.get("saas/db-template", ""),
             "image": annotations.get("saas/image", ""),
         })
-    return result
+    return {"items": result, "total": total, "page": page, "page_size": page_size}
 
 
 # ─── Get Instance ──────────────────────────────────────────────────────────────
