@@ -59,6 +59,8 @@ jobs:
 
     steps:
       - name: Roll out new image
+        env:
+          KUBECONFIG: ""   # force in-cluster config via ServiceAccount token
         run: |
           kubectl set image deployment/saas-portal \
             portal=${{ env.IMAGE }}:dev-latest \
@@ -67,6 +69,8 @@ jobs:
             -n portal-dev --timeout=120s
 
       - name: Verify health
+        env:
+          KUBECONFIG: ""   # force in-cluster config via ServiceAccount token
         run: |
           echo "Waiting for portal-dev to pass readiness..."
           for i in $(seq 1 12); do
